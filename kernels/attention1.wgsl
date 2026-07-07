@@ -9,6 +9,7 @@
 @group(0) @binding(3) var<storage, read> params: array<u32>;   // [1]=cacheLen
 @group(0) @binding(4) var<uniform> srq: vec2f;                 // o-proj (inS, outS)
 @group(0) @binding(5) var<storage, read_write> xq: array<u32>;
+@group(0) @binding(6) var<storage, read_write> sumOut: array<atomic<i32>>;
 
 var<workgroup> probs: array<f32, ${MAXSEQ}>;
 var<workgroup> red: array<f32, ${WG}>;
@@ -69,8 +70,9 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
       acc = acc + probs[t] * vcache[(t * ${KV_HEADS}u + kvh) * hd4 + d];
     }
     let v = acc / denom;
-    let qv = vec4<i32>(clamp(round(v / srq.x), vec4f(-128.0), vec4f(127.0)));
+    let qv = vec4<i32>(clamp(round(v / srq.x), vec4f(-127.0), vec4f(127.0)));
     xq[qBase + d] = (u32(qv.x) & 0xFFu) | ((u32(qv.y) & 0xFFu) << 8u)
                   | ((u32(qv.z) & 0xFFu) << 16u) | ((u32(qv.w) & 0xFFu) << 24u);
+    atomicAdd(&sumOut[0], qv.x + qv.y + qv.z + qv.w);
   }
 }

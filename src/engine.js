@@ -171,6 +171,8 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     xq3: alloc(device, 3 * C.hidden),                       // 3 offset regions (qkv / gate+up)
     amax: alloc(device, 16),
     tokRing: alloc(device, 1024 * 8),
+    xqSums: alloc(device, 16),
+    xqSumI: alloc(device, 16),
     amaxPart: alloc(device, 256 * 8),
     srqOff: upload(device, new Float32Array([0, 0]), GPUBufferUsage.UNIFORM),
     combineScale: upload(device, new Float32Array([Math.SQRT1_2])),
@@ -178,7 +180,7 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
 
   // ---- pipelines ----
   const MV_R = 2;
-  const mv = (bits, IN, OUT) => K.pipeline("matvec4", { BITS: bits, IN, OUT, SER: 1, SOFTCAP: "0.0" });
+  const mv = (bits, IN, OUT, zp = 0) => K.pipeline("matvec4", { BITS: bits, IN, OUT, SER: 1, ZP: zp, SOFTCAP: "0.0" });
   const srqCache = new Map();
   const srq8 = async (N) => {
     if (!srqCache.has(N)) srqCache.set(N, await K.pipeline("srq8", { N, WG: 64 }));
@@ -186,7 +188,7 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
   };
   const kern = {
     embed: await K.pipeline("embedrow", { N: C.hidden, BLOCKS: 1, MULT: Math.sqrt(C.hidden).toFixed(8), PARAM_IDX: 2, WG: 256 }),
-    pleRow: await K.pipeline("embedrow", { N: PLE_TOTAL, BLOCKS: C.layers, MULT: Math.sqrt(C.pleDim).toFixed(8), PARAM_IDX: 2, WG: 256 }),
+    plePrep: await K.pipeline("pleprep", { PD: C.pleDim, LAYERS: C.layers, MULT: Math.sqrt(C.pleDim).toFixed(8), EPS: C.eps, WG: 64 }),
     rmsHidden: await K.pipeline("rmsnorm", { DIM: C.hidden, EPS: C.eps, WITH_SCALE: 1, WG: 256 }),
     rmsPle: await K.pipeline("rmsnorm", { DIM: C.pleDim, EPS: C.eps, WITH_SCALE: 1, WG: 64 }),
     accH: await K.pipeline("acc", { N: C.hidden, WG: 256 }),
@@ -232,7 +234,7 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     l.guMv = await K.pipeline("matvecgu", { IN: C.hidden, OUT: C.inter });
     l.pleGateMvF = await K.pipeline("plegatemv", { IN: C.hidden, OUT: C.pleDim, OFF: l.i * C.pleDim });
     l.oMv = await mv(4, C.qHeads * l.headDim, C.hidden);
-    l.downMv = await mv(4, C.inter, C.hidden);
+    l.downMv = await mv(4, C.inter, C.hidden);   // ZP=1 unorm blocked: A/B shows ratio 0.53 — Σq (atomic) path bug, see DEVPLAN
     l.pleGateMv = await mv(8, C.hidden, C.pleDim);
     l.pleProjMv = await mv(8, C.pleDim, C.hidden);
     l.pleMulSrq = await K.pipeline("plemulsrq", { N: C.pleDim, OFF: l.i * C.pleDim, WG: 64 });
@@ -276,11 +278,10 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     const run = ctx.run;
     run(kern.embed, [model.embQ, model.embS, A.params, A.hidden], wg(C.hidden, 256));
     // PLE inputs: identity + context projection
-    run(kern.pleRow, [model.pleQ, model.pleS, A.params, A.pleIdentity], wg(PLE_TOTAL, 256));
+
     run(kern.pleProjMv, [A.hidden, model.pleProjW, model.pleProjScale, A.srqOff, A.pleProj], PLE_TOTAL);
     // norm per 256-block (42 rows), then (proj + identity) * 2^-0.5
-    run(kern.rmsPle, [A.pleProj, model.pleProjNorm, A.pleNormed], C.layers);
-    run(kern.addMulPle, [A.pleNormed, A.pleIdentity, A.combineScale, A.pleInput], wg(PLE_TOTAL, 256));
+    run(kern.plePrep, [model.pleQ, model.pleS, A.params, A.pleProj, model.pleProjNorm, A.pleInput], C.layers);
   }
 
   function encodeLayer(ctx, l) {
@@ -293,24 +294,24 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
       const vview = { buffer: A.qkv, offset: (l.qOut + l.kvOut) * 4, size: l.kvOut * 4 };
       // attention: layer 0's norm+quant runs here; later layers get it fused
       // into the previous layer's boundary op (rmsaccNext)
-      if (l.i === 0 || AB_NOFUSE) run(l.isShared ? kern.rmssrq1 : kern.rmssrq3, [A.hidden, l.inNorm, l.qkvScales, A.xq3], 1);
-      run(l.qkvMv, [A.xq3, l.qkv.wBuf, l.qkv.wsBuf, l.qkv.srqsBuf, A.qkv], wg2(Math.ceil(l.qkv.out / 2)));
-      run(kk.headprep, [A.qkv, l.qNorm, l.isShared ? l.qNorm : l.kNorm, A.params, cache.kCache, cache.vCache],
+      if (l.i === 0 || AB_NOFUSE) run(l.isShared ? kern.rmssrq1 : kern.rmssrq3, [A.hidden, l.inNorm, l.qkvScales, A.xq3, A.xqSums], 1);
+      run(l.qkvMv, [A.xq3, l.qkv.wBuf, l.qkv.wsBuf, l.qkv.srqsBuf, A.qkv, A.xqSums], wg2(Math.ceil(l.qkv.out / 2)));
+      run(kk.headprep, [A.qkv, l.qNorm, l.isShared ? l.qNorm : l.kNorm, A.params, cache.kCache, cache.vCache, A.xqSumI],
           l.isShared ? C.qHeads : C.qHeads + 2 * C.kvHeads);
-      run(kk.att1, [qview, cache.kCache, cache.vCache, A.params, l.o.srqBuf, A.xq], [C.qHeads, 4]);
-      run(l.oMv, [A.xq, l.o.wBuf, l.o.wsBuf, l.o.srqBuf, A.tmp], Math.ceil(C.hidden / MV_R));
+      run(kk.att1, [qview, cache.kCache, cache.vCache, A.params, l.o.srqBuf, A.xq, A.xqSumI], [C.qHeads, 4]);
+      run(l.oMv, [A.xq, l.o.wBuf, l.o.wsBuf, l.o.srqBuf, A.tmp, A.xqSumI], Math.ceil(C.hidden / MV_R));
       // fused: residual add + pre-ffn norm + gate/up quant regions
-      run(kern.rmsaccFfn, [A.tmp, l.postAttnNorm, A.hidden, l.preFfnNorm, l.gateUpScales, A.xq3], 1);
-      run(l.guMv, [A.xq3, l.gu.wBuf, l.gu.wsBuf, l.guSrqs, A.xq], wg2(Math.ceil(C.inter / 4)));
-      run(l.downMv, [A.xq, l.down.wBuf, l.down.wsBuf, l.down.srqBuf, A.tmp], Math.ceil(C.hidden / MV_R));
+      run(kern.rmsaccFfn, [A.tmp, l.postAttnNorm, A.hidden, l.preFfnNorm, l.gateUpScales, A.xq3, A.xqSums, A.xqSumI], 1);
+      run(l.guMv, [A.xq3, l.gu.wBuf, l.gu.wsBuf, l.guSrqs, A.xq, A.xqSums, A.xqSumI], wg2(Math.ceil(C.inter / 4)));
+      run(l.downMv, [A.xq, l.down.wBuf, l.down.wsBuf, l.down.srqBuf, A.tmp, A.xqSumI], Math.ceil(C.hidden / MV_R));
       // fused: residual add + pleGate quant (raw hidden, no norm)
-      run(kern.rmsaccPle, [A.tmp, l.postFfnNorm, A.hidden, l.postFfnNorm, l.pleGateScales, A.xq], 1);
+      run(kern.rmsaccPle, [A.tmp, l.postFfnNorm, A.hidden, l.postFfnNorm, l.pleGateScales, A.xq, A.xqSums, A.xqSumI], 1);
       run(l.pleGateMvF, [A.xq, l.pleGate.wBuf, l.pleGate.wsBuf, l.pleSrqs, A.pleInput,
                           { buffer: A.xq3, offset: 0, size: 256 }], C.pleDim / 4);
-      run(l.pleProjMv, [{ buffer: A.xq3, offset: 0, size: 256 }, l.pleProj.wBuf, l.pleProj.wsBuf, l.pleProj.srqBuf, A.tmp], Math.ceil(C.hidden / MV_R));
+      run(l.pleProjMv, [{ buffer: A.xq3, offset: 0, size: 256 }, l.pleProj.wBuf, l.pleProj.wsBuf, l.pleProj.srqBuf, A.tmp, A.xqSumI], Math.ceil(C.hidden / MV_R));
       // layer boundary: residual+layer_scalar + NEXT layer's input norm+quant, fused
       if (l.next && !AB_NOFUSE) {
-        run(l.rmsaccNext, [A.tmp, l.postPleNorm, A.hidden, l.next.inNorm, l.next.qkvScales, A.xq3], 1);
+        run(l.rmsaccNext, [A.tmp, l.postPleNorm, A.hidden, l.next.inNorm, l.next.qkvScales, A.xq3, A.xqSums, A.xqSumI], 1);
       } else {
         run(l.rmsaccMul, [A.tmp, l.postPleNorm, A.hidden], 1);
       }

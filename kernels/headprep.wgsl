@@ -9,11 +9,13 @@
 @group(0) @binding(3) var<storage, read> params: array<u32>;     // [0]=pos
 @group(0) @binding(4) var<storage, read_write> kcache: array<f32>;
 @group(0) @binding(5) var<storage, read_write> vcache: array<f32>;
+@group(0) @binding(6) var<storage, read_write> sumI: array<i32>;
 
 var<workgroup> red: array<f32, ${WG}>;
 
 @compute @workgroup_size(${WG})
 fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+  if (wid.x == 0u && lid.x == 0u) { sumI[0] = 0; }   // zero the Σq slot for att1
   let base = wid.x * ${HEAD_DIM}u;
   var s: f32 = 0.0;
   for (var d = lid.x; d < ${HEAD_DIM}u; d = d + ${WG}u) {

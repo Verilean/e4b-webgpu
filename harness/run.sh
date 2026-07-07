@@ -11,6 +11,7 @@ PROFILE="${E4B_CHROME_PROFILE:-$HOME/.cache/e4b-chrome-profile}"
 : > "$ROOT/harness/run.log"
 "$CHROME" --headless=new --user-data-dir="$PROFILE" --no-first-run \
   --enable-unsafe-webgpu --use-angle=metal \
+  --disk-cache-size=1 --media-cache-size=1 \
   "http://127.0.0.1:8877/$PAGE" >/dev/null 2>&1 &
 CPID=$!
 SECS=0

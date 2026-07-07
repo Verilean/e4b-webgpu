@@ -24,7 +24,7 @@ export async function initDevice() {
 export function upload(device, data, usage = GPUBufferUsage.STORAGE) {
   const src = ArrayBuffer.isView(data) ? data : new Uint8Array(data);
   const size = Math.max(16, (src.byteLength + 3) & ~3);
-  const buf = device.createBuffer({ size, usage: usage | GPUBufferUsage.COPY_DST });
+  const buf = device.createBuffer({ size, usage: usage | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
   device.queue.writeBuffer(buf, 0, src.buffer ?? src, src.byteOffset ?? 0, src.byteLength);
   return buf;
 }

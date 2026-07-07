@@ -130,6 +130,35 @@ xqdiff differential mode caught 2 real bugs mid-M4: a lost-edit (boundary fusion
 never dispatched → stale xq3) and a pleProj 10× under-dispatch that the token
 gate ALONE had masked — gate condition (c) ratios are not optional.
 
+## M4b results (2026-07-07 afternoon): 10.92 → 10.06 ms/token = 99.4 tok/s (97% of llama.cpp)
+
+**The unlock came from READING THE REFERENCE (webml kernels in hesper
+refs/webml-gemma4/wgsl), not from more guessing**: our int4 dequant chain
+(unpack4xU8 → vec4i → vec4f → −8) is a Tint POLYFILL costing ~15 µs per 13 MB
+matvec; webml uses `unpack4x8unorm`/`unpack4x8snorm` — NATIVE Metal single
+instructions — with the /255·/127 folds moved into the output scale and the −8
+zero-point deferred as `−8·Σq` (producer emits Σq; exact: verified vs integer
+truth in a JS row-probe, err 1.5e-6). Ported to qkv (matvecg) + gate/up
+(matvecgu): gu 3.47→2.55 ms (60.7 µs = 432 GB/s in-graph). Ladder this leg:
+10.92 → 10.70 (single-dispatch attention + plegatemv + pleprep, matvecgu2) →
+10.09 (unorm/snorm qkv+gu) → **10.06**.
+
+**Two harness traps found (cost ~1.5 h of misattributed debugging):**
+1. `--enable-dawn-features=disable_robustness` (hesper-proven lever, −0.3 ms)
+   SILENTLY CORRUPTS this engine — some access relies on robustness clamping.
+   Every flag flip must re-run the gate; a bench-only check let the corruption
+   masquerade as a numerics bug in the (innocent) unorm port for an hour.
+2. Chrome's persistent-profile disk cache serves STALE .js modules on
+   same-second edits (the earlier "lost edit" mystery) — server now sends
+   Cache-Control: no-store and the runner uses --disk-cache-size=1.
+
+**Open (isolated, reproducible)**: matvec4-unorm for down/o with atomic-Σq
+producers — A/B shows down-unorm alone → bisect ratio 0.53 (≈2× smell:
+suspect the atomic Σ or its zeroing order). Row-probe method ready. Landing
+this ≈ −0.6 ms → ~9.4 ms ≈ 106 tok/s (beats llama.cpp); then lm_head int2-unorm
+(−0.2) and attention/fence trims → ~9.0. webml-SOTA 8.1 additionally needs
+their op schedule (~316 ops vs our ~460).
+
 ## Author-time log
 
 | span | wall clock | what |
@@ -147,3 +176,4 @@ gate ALONE had masked — gate condition (c) ratios are not optional.
 | date | decision | basis |
 |---|---|---|
 | 2026-07-07 | New minimal repo; scratch engine with webml as reference reading; swap = baseline/oracle + fallback | user; hesper report P2 (context compactness), principle 7 |
+| afternoon | ~2.5 h | M4b: reference-read unlock (native unorm/snorm unpack) → 99.4 tok/s; 2 harness traps documented |

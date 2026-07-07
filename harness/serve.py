@@ -16,6 +16,13 @@ os.chdir(ROOT)
 LOG = os.path.join(ROOT, "harness", "run.log")
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self):
+        # never cache code: Chrome's module cache + same-second mtimes caused
+        # silent stale-JS runs (a lost-edit bug cost a debugging hour)
+        if self.path.split("?")[0].endswith((".js", ".html", ".wgsl")):
+            self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     protocol_version = "HTTP/1.1"
 
     def do_POST(self):

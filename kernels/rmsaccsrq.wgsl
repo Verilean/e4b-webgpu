@@ -7,6 +7,8 @@
 @group(0) @binding(3) var<storage, read> w2: array<f32>;
 @group(0) @binding(4) var<storage, read> scales: array<f32>;   // [NS]
 @group(0) @binding(5) var<storage, read_write> xq: array<u32>;
+@group(0) @binding(6) var<storage, read_write> xsum: array<f32>;
+@group(0) @binding(7) var<storage, read_write> sumI: array<i32>;
 
 var<workgroup> red: array<f32, ${WG}>;
 var<workgroup> hs: array<f32, ${DIM}>;    // staged updated hidden (avoids relying
@@ -49,16 +51,27 @@ fn main(@builtin(local_invocation_id) lidv: vec3<u32>) {
     inv2 = pow(reduceAdd(lid, s2) / f32(${DIM}u) + ${EPS}, -0.5);
   }
   let words = ${DIM}u / 4u;
+  var rsum: array<f32, ${NS}>;
+  for (var r: u32 = 0u; r < ${NS}u; r = r + 1u) { rsum[r] = 0.0; }
   for (var wi = lid; wi < ${NS}u * words; wi = wi + ${WG}u) {
-    let sc = scales[wi / words];
+    let r = wi / words;
+    let sc = scales[r];
     let j = (wi % words) * 4u;
     var packed: u32 = 0u;
+    var ws: f32 = 0.0;
     for (var k: u32 = 0u; k < 4u; k = k + 1u) {
       var v = hs[j + k] * inv2;
       if (${NORM2}u == 1u) { v = v * w2[j + k]; }
-      let q = i32(clamp(round(v / sc), -128.0, 127.0));
+      let q = i32(clamp(round(v / sc), -127.0, 127.0));
+      ws = ws + f32(q);
       packed = packed | ((u32(q) & 0xFFu) << (k * 8u));
     }
+    rsum[r] = rsum[r] + ws;
     xq[wi] = packed;
   }
+  for (var r: u32 = 0u; r < ${NS}u; r = r + 1u) {
+    let t2 = reduceAdd(lid, rsum[r]);
+    if (lid == 0u) { xsum[r] = t2; }
+  }
+  if (lid == 0u) { sumI[0] = 0; }              // zero the atomic Σq slot for the
 }

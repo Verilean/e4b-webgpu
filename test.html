@@ -104,7 +104,7 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
         const enc = dev.createCommandEncoder();
         const pass = enc.beginComputePass();
         const ctx = { run: (k, b, gr) => { pass.setPipeline(k.pipeline); pass.setBindGroup(0, eng.bindPub(k, b)); pass.dispatchWorkgroups(...(Array.isArray(gr) ? gr : [gr])); } };
-        ctx.run(kern.rmssrq3, [A.hidden, l1.inNorm, l1.qkvScales, A.xq3], 1);
+        ctx.run(kern.rmssrq3, [A.hidden, l1.inNorm, l1.qkvScales, A.xq3, A.xqSums], 1);
         pass.end();
         dev.queue.submit([enc.finish()]);
       }
@@ -114,6 +114,36 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
       L(`xqdiff: ${nd}/${fused.length} words differ, first at ${firstIdx}`);
       if (firstIdx >= 0) L(`  fused=${fused[firstIdx].toString(16)} explicit=${explicit[firstIdx].toString(16)} region=${Math.floor(firstIdx / 640)}`);
       L(`hidden[0..4]=${[...hiddenAfter.slice(0, 4)].map((x) => x.toFixed(5)).join(",")}`);
+      if (q.get("row0") === "1") {
+        // exact JS recomputation of layer1 q-proj row 0 vs the GPU's A.qkv[0]
+        const xq3 = new Int8Array(await readback(dev, A.xq3, 2560));      // region 0
+        const xs = new Float32Array(await readback(dev, A.xqSums, 16));
+        // run layer1's qkv matvec on the current xq3
+        {
+          const enc2 = dev.createCommandEncoder();
+          const pass2 = enc2.beginComputePass();
+          const c2 = { run: (k, b, gr) => { pass2.setPipeline(k.pipeline); pass2.setBindGroup(0, eng.bindPub(k, b)); pass2.dispatchWorkgroups(...(Array.isArray(gr) ? gr : [gr])); } };
+          c2.run(l1.qkvMv, [A.xq3, l1.qkv.wBuf, l1.qkv.wsBuf, l1.qkv.srqsBuf, A.qkv, A.xqSums], [Math.ceil(l1.qkv.out / 2)]);
+          pass2.end();
+          dev.queue.submit([enc2.finish()]);
+        }
+        const yGpu = new Float32Array(await readback(dev, A.qkv, 16));
+        const wRow = new Uint8Array(await readback(dev, l1.qkv.wBuf, 1280)); // row 0 int4
+        // JS exact: sum (v-8)*q
+        let acc = 0, sq = 0;
+        for (let i = 0; i < 2560; i++) {
+          const b = wRow[i >> 1];
+          const v = (i & 1) ? (b >> 4) : (b & 15);
+          acc += (v - 8) * xq3[i];
+          sq += xq3[i];
+        }
+        const ws0 = new Float32Array(await readback(dev, l1.qkv.wsBuf, 4))[0];
+        const sqv = new Float32Array(await readback(dev, l1.qkv.srqsBuf, 8));
+        let yExp = acc * sqv[0] * ws0;
+        if (sqv[1] !== 0) yExp = Math.max(-128, Math.min(127, Math.round(yExp / sqv[1]))) * sqv[1];
+        L(`row0: exactSum=${acc} xsum[0]=${xs[0]} yGpu[0]=${yGpu[0]} yExpected=${yExp} ws0=${ws0} inS=${sqv[0]} outS=${sqv[1]}`);
+        const meta = await fetch("/log", { method: "POST", body: "row0 done" });
+      }
       // JS recomputation of the expected quantization for elements 0..3
       const w2v = new Float32Array(await readback(dev, l1.inNorm, 16));
       const scv = new Float32Array(await readback(dev, l1.qkvScales, 12));
