@@ -189,8 +189,7 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
   const kern = {
     embed: await K.pipeline("embedrow", { N: C.hidden, BLOCKS: 1, MULT: Math.sqrt(C.hidden).toFixed(8), PARAM_IDX: 2, WG: 256 }),
     plePrep: await K.pipeline("pleprep", { PD: C.pleDim, LAYERS: C.layers, MULT: Math.sqrt(C.pleDim).toFixed(8), EPS: C.eps, WG: 64 }),
-    rmsHidden: await K.pipeline("rmsnorm", { DIM: C.hidden, EPS: C.eps, WITH_SCALE: 1, WG: 256 }),
-    rmsPle: await K.pipeline("rmsnorm", { DIM: C.pleDim, EPS: C.eps, WITH_SCALE: 1, WG: 64 }),
+    rmsHidden: await K.pipeline("rmsnorm", { DIM: C.hidden, EPS: C.eps, WITH_SCALE: 1, SUMOUT: 1, WG: 256 }),
     accH: await K.pipeline("acc", { N: C.hidden, WG: 256 }),
     accMulH: await K.pipeline("accmul", { N: C.hidden, WG: 256 }),
     addMulPle: await K.pipeline("addmul", { N: PLE_TOTAL, WG: 256 }),
@@ -320,8 +319,8 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
 
   function encodeFinal(ctx) {
     const run = ctx.run;
-    run(kern.rmsHidden, [A.hidden, model.finalNorm, A.normed], 1);
-    run(kern.lmHead, [A.normed, model.lmHeadQ, model.lmHeadS, A.logits], wg2(C.vocab / 128));
+    run(kern.rmsHidden, [A.hidden, model.finalNorm, A.normed, A.xqSums], 1);
+    run(kern.lmHead, [A.normed, model.lmHeadQ, model.lmHeadS, A.logits, A.xqSums], wg2(C.vocab / 128));
     run(kern.argmax0, [A.logits, A.amaxPart, A.amax], 256);
     run(kern.argmax1, [A.logits, A.amaxPart, A.amax], 1);
   }
