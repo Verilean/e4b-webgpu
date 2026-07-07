@@ -233,8 +233,9 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
       B0: l.qkv.bounds[0], B1: l.qkv.bounds[1] ?? l.qkv.bounds[0] });
     l.guMv = await K.pipeline("matvecgu", { IN: C.hidden, OUT: C.inter });
     l.pleGateMvF = await K.pipeline("plegatemv", { IN: C.hidden, OUT: C.pleDim, OFF: l.i * C.pleDim });
-    l.oMv = await mv(4, C.qHeads * l.headDim, C.hidden);
-    l.downMv = await mv(4, C.inter, C.hidden);   // ZP=1 unorm blocked: A/B shows ratio 0.53 — Σq (atomic) path bug, see DEVPLAN
+    l.oMv = await mv(4, C.qHeads * l.headDim, C.hidden, 1);   // Σq from att1 atomics
+    l.downMv = await mv(4, C.inter, C.hidden, 1);    // Σq from the gu epilogue atomics
+    l.downMvZ = l.downMv;                            // downtest alias
     l.pleGateMv = await mv(8, C.hidden, C.pleDim);
     l.pleProjMv = await mv(8, C.pleDim, C.hidden);
     l.pleMulSrq = await K.pipeline("plemulsrq", { N: C.pleDim, OFF: l.i * C.pleDim, WG: 64 });

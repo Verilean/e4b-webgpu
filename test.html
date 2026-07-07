@@ -158,6 +158,54 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
       L("DONE");
       return;
     }
+    if (q.get("mode") === "downtest") {
+      // synthetic, fully controlled test of the ZP=1 (unorm/snorm + sumI) matvec:
+      // JS writes known xq + sumI, dispatches downMvZ, compares row 0 vs exact JS.
+      const { readback } = await import("./src/gpu.js");
+      const dev = eng.device, A = eng.A, l0 = eng.layers[0];
+      const N = eng.C.inter;
+      const qv = new Int8Array(N);
+      let sq = 0;
+      for (let i = 0; i < N; i++) { qv[i] = ((i * 37 + 11) % 255) - 127; sq += qv[i]; }
+      dev.queue.writeBuffer(A.xq, 0, qv.buffer);
+      dev.queue.writeBuffer(A.xqSumI, 0, new Int32Array([sq, 0, 0, 0]).buffer);
+      {
+        const enc = dev.createCommandEncoder();
+        const pass = enc.beginComputePass();
+        pass.setPipeline(l0.downMvZ.pipeline);
+        pass.setBindGroup(0, eng.bindPub(l0.downMvZ, [A.xq, l0.down.wBuf, l0.down.wsBuf, l0.down.srqBuf, A.tmp, A.xqSumI]));
+        pass.dispatchWorkgroups(Math.ceil(eng.C.hidden / 2));
+        pass.end();
+        dev.queue.submit([enc.finish()]);
+      }
+      const yz = new Float32Array(await readback(dev, A.tmp, 16));
+      // reference: ZP=0 kernel on the same data
+      {
+        const enc = dev.createCommandEncoder();
+        const pass = enc.beginComputePass();
+        pass.setPipeline(l0.downMv.pipeline);
+        pass.setBindGroup(0, eng.bindPub(l0.downMv, [A.xq, l0.down.wBuf, l0.down.wsBuf, l0.down.srqBuf, A.tmp, A.xqSumI]));
+        pass.dispatchWorkgroups(Math.ceil(eng.C.hidden / 2));
+        pass.end();
+        dev.queue.submit([enc.finish()]);
+      }
+      const ys = new Float32Array(await readback(dev, A.tmp, 16));
+      // exact JS row 0
+      const wRow = new Uint8Array(await readback(dev, l0.down.wBuf, N / 2));
+      const ws0 = new Float32Array(await readback(dev, l0.down.wsBuf, 4))[0];
+      const sr = new Float32Array(await readback(dev, l0.down.srqBuf, 8));
+      let acc = 0;
+      for (let i = 0; i < N; i++) {
+        const b = wRow[i >> 1];
+        const v = (i & 1) ? (b >> 4) : (b & 15);
+        acc += (v - 8) * qv[i];
+      }
+      let yExp = acc * sr[0] * ws0;
+      if (sr[1] !== 0) yExp = Math.max(-128, Math.min(127, Math.round(yExp / sr[1]))) * sr[1];
+      L(`downtest: exactSum=${acc} sumQ=${sq} yJS=${yExp} yZP0=${ys[0]} yZP1=${yz[0]}  [1]: zp0=${ys[1]} zp1=${yz[1]}`);
+      L("DONE");
+      return;
+    }
     if (q.get("mode") === "bisect") {
       // per-layer hidden comparison vs goldens.layer_fingerprints (p0, last prompt position)
       const g = goldens.prompts[0];

@@ -69,7 +69,10 @@ fn wdot(wv: vec4<u32>, x: XU) -> f32 {
 }
 
 fn finish(total: f32, o: u32) {
-  var out = total * srq.x * wscale[o];
+  var t = total;
+  // ZP=1: unorm(v/255)·snorm(q/127) dots — refold scales, defer the -8 zero-point
+  if (${ZP}u == 1u && ${BITS}u == 4u) { t = 32385.0 * t - 8.0 * f32(sumI[0]); }
+  var out = t * srq.x * wscale[o];
   if (srq.y != 0.0) { out = clamp(round(out / srq.y), -128.0, 127.0) * srq.y; }
   if (${SOFTCAP} != 0.0) { out = ${SOFTCAP} * tanh(out / ${SOFTCAP}); }
   y[o] = out;
