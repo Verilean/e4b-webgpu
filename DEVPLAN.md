@@ -159,6 +159,24 @@ this ≈ −0.6 ms → ~9.4 ms ≈ 106 tok/s (beats llama.cpp); then lm_head int
 (−0.2) and attention/fence trims → ~9.0. webml-SOTA 8.1 additionally needs
 their op schedule (~316 ops vs our ~460).
 
+## M4c results (2026-07-07): **8.05 ms/token = 124.2 tok/s — SOTA on this box**
+
+Beats BOTH baselines: llama.cpp 102.4 (121%) and the webml engine itself
+(123.5 → 124.2, 8.10 → 8.05 ms). Cool-box, n=64 median, gate-clean
+(p1 token-exact incl. EOS; p0/p2 near-tie SRQ flips, coherent).
+
+Ladder this leg: 10.06 → 9.17 (down/o unorm — the "ratio 0.53" was a silent-
+replace failure: finish() never got the ZP refold; a SYNTHETIC downtest with
+JS-controlled xq/Σq pinned it in one run) → 8.93 (lm_head int2 native-unorm,
+459 GB/s) → 8.31 (subgroup 2-barrier reductions in rmsaccsrq — the barrier
+TREES were ~50-80 barriers per 1-WG dispatch!) → 8.15 (same in attention1/
+headprep/rmssrq/rmsacc + DT=1 attention + V t-partition) → **8.05**
+(per_layer_model_projection bf16→f16, native unpack2x16float, 110→55 MB).
+
+Effective BW 273 GB/s (= webml's number). Biggest remaining classes if anyone
+wants more: gu 2.47ms (445 GB/s in-graph, near the int4 ceiling), attention
+1.3ms (8-WG latency floor at short seq), fences (~470 dispatches).
+
 ## Author-time log
 
 | span | wall clock | what |
@@ -177,3 +195,4 @@ their op schedule (~316 ops vs our ~460).
 |---|---|---|
 | 2026-07-07 | New minimal repo; scratch engine with webml as reference reading; swap = baseline/oracle + fallback | user; hesper report P2 (context compactness), principle 7 |
 | afternoon | ~2.5 h | M4b: reference-read unlock (native unorm/snorm unpack) → 99.4 tok/s; 2 harness traps documented |
+| evening | ~1.5 h | M4c: SOTA — 124.2 tok/s (webml 123.5, llama.cpp 102.4). Levers: synthetic-test debugging, native unorm everywhere, subgroup reductions, f16 projection |

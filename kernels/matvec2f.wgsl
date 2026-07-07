@@ -28,6 +28,15 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
         acc = acc + dot(w4, x[jw * 4u + g]);
       }
     }
+  } else if (${BITS}u == 16u) {                            // f16 weights, native unpack
+    let rowW = ${IN}u / 8u;                                // vec4<u32> = 8 f16
+    let base = o * rowW;
+    for (var j = lid.x; j < rowW; j = j + ${WG}u) {
+      let wb = (base + j) * 4u;
+      let w0 = vec4f(unpack2x16float(w[wb]), unpack2x16float(w[wb + 1u]));
+      let w1 = vec4f(unpack2x16float(w[wb + 2u]), unpack2x16float(w[wb + 3u]));
+      acc = acc + dot(x[j * 2u], w0) + dot(x[j * 2u + 1u], w1);
+    }
   } else {                                                 // BITS == 32 (f32 weights)
     let rowV = ${IN}u / 4u;
     let base = o * rowV;

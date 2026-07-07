@@ -123,7 +123,12 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     embS: upload(device, new Float32Array((await st.fetch(P + "embed_tokens.embedding_scale")).buf)),
     pleQ: upload(device, new Uint8Array((await st.fetch(P + "embed_tokens_per_layer.embedding_quantized")).buf)),
     pleS: upload(device, new Float32Array((await st.fetch(P + "embed_tokens_per_layer.embedding_scale")).buf)),
-    pleProjW: upload(device, bf16ToF32((await st.fetch(P + "per_layer_model_projection.weight")).buf)),
+    pleProjW: upload(device, await (async () => {
+      // bf16 → f16 (halves the 110MB/token read; unpack2x16float decodes natively)
+      const f32 = bf16ToF32((await st.fetch(P + "per_layer_model_projection.weight")).buf);
+      const f16 = new Float16Array(f32);
+      return new Uint16Array(f16.buffer);
+    })()),
     pleProjScale: upload(device, new Float32Array(PLE_TOTAL).fill(1 / Math.sqrt(C.hidden))),
     pleProjNorm: f32buf(await st.fetch(P + "per_layer_projection_norm.weight")),
     finalNorm: f32buf(await st.fetch(P + "norm.weight")),
@@ -194,7 +199,7 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     accMulH: await K.pipeline("accmul", { N: C.hidden, WG: 256 }),
     addMulPle: await K.pipeline("addmul", { N: PLE_TOTAL, WG: 256 }),
     gegluMul: await K.pipeline("geglumul", { N: C.inter, WG: 256 }),
-    pleProjMv: await K.pipeline("matvec2f", { BITS: 32, IN: C.hidden, OUT: PLE_TOTAL, WG: 64, SOFTCAP: "0.0" }),
+    pleProjMv: await K.pipeline("matvec2f", { BITS: 16, IN: C.hidden, OUT: PLE_TOTAL, WG: 64, SOFTCAP: "0.0" }),
     lmHead: await K.pipeline("lmhead", { IN: C.hidden, OUT: C.vocab, TILE: 128, SOFTCAP: C.softcap.toFixed(1) }),
     srqH: await (async () => K.pipeline("srq8", { N: C.hidden, WG: 64 }))().then(x=>x),
     argmax0: await K.pipeline("argmax2", { N: C.vocab, PARTS: 256, STAGE: 0, WG: 256 }),
