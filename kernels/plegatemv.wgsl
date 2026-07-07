@@ -12,12 +12,9 @@ enable subgroups;
 
 var<workgroup> vals: array<f32, 4>;
 
-fn q8dot(wv: vec4<u32>, jw: u32) -> f32 {
-  let xv = xq[jw];
-  return dot(vec4f(unpack4xI8(xv.x)), vec4f(unpack4xI8(wv.x)))
-       + dot(vec4f(unpack4xI8(xv.y)), vec4f(unpack4xI8(wv.y)))
-       + dot(vec4f(unpack4xI8(xv.z)), vec4f(unpack4xI8(wv.z)))
-       + dot(vec4f(unpack4xI8(xv.w)), vec4f(unpack4xI8(wv.w)));
+fn q8dotx(wv: vec4<u32>, x0: vec4f, x1: vec4f, x2: vec4f, x3: vec4f) -> f32 {
+  return dot(x0, vec4f(unpack4xI8(wv.x))) + dot(x1, vec4f(unpack4xI8(wv.y)))
+       + dot(x2, vec4f(unpack4xI8(wv.z))) + dot(x3, vec4f(unpack4xI8(wv.w)));
 }
 
 @compute @workgroup_size(32)
@@ -26,10 +23,15 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   let rowW = ${IN}u / 16u;
   var a0: f32 = 0.0; var a1: f32 = 0.0; var a2: f32 = 0.0; var a3: f32 = 0.0;
   for (var jw = lid.x; jw < rowW; jw = jw + 32u) {
-    a0 = a0 + q8dot(w[(o0     ) * rowW + jw], jw);
-    a1 = a1 + q8dot(w[(o0 + 1u) * rowW + jw], jw);
-    a2 = a2 + q8dot(w[(o0 + 2u) * rowW + jw], jw);
-    a3 = a3 + q8dot(w[(o0 + 3u) * rowW + jw], jw);
+    let xv = xq[jw];
+    let x0 = vec4f(unpack4xI8(xv.x));
+    let x1 = vec4f(unpack4xI8(xv.y));
+    let x2 = vec4f(unpack4xI8(xv.z));
+    let x3 = vec4f(unpack4xI8(xv.w));
+    a0 = a0 + q8dotx(w[(o0     ) * rowW + jw], x0, x1, x2, x3);
+    a1 = a1 + q8dotx(w[(o0 + 1u) * rowW + jw], x0, x1, x2, x3);
+    a2 = a2 + q8dotx(w[(o0 + 2u) * rowW + jw], x0, x1, x2, x3);
+    a3 = a3 + q8dotx(w[(o0 + 3u) * rowW + jw], x0, x1, x2, x3);
   }
   let t0 = subgroupAdd(a0);
   let t1 = subgroupAdd(a1);

@@ -98,7 +98,10 @@ M4 Max 546 peak) → 14.0 (fusions: rmssrq/rmsacc/geglusrq/plemulsrq + xq3 regio
 grouped qkv/gate-up concat matvecs) → 13.2 (headprep, attention-epilogue SRQ,
 layer-boundary fusion) → 13.0 (1-dispatch attention, plegatemv, matvecgu2) →
 11.4 (GPU-feedback pipelined decode: feedtok + token ring, zero CPU sync in loop) →
-**11.11** (lm_head 64-row tiles, 251 GB/s).
+**11.11** (lm_head 64-row tiles, 251 GB/s) → **10.92 = 91.6 tok/s** (activation
+loads/unpacks hoisted out of the dot helper — shared across both row
+accumulations; gu −7%, down unchanged, so the no-CSE hypothesis was only
+PARTIALLY right and the ~335 GB/s int4 cap is mostly elsewhere — recorded).
 
 **vs targets: must-beat llama.cpp 102.4 tok/s — NOT reached (88%). Stretch
 webml-E4B 123.5 — not reached (73%).** Honest gaps, measured not guessed:
@@ -136,7 +139,8 @@ gate ALONE had masked — gate condition (c) ratios are not optional.
 | ~10:35 | +30 min | M1 done: llama.cpp 102.4, webml-swap 123.5 (P1 held, P2 missed) |
 | ~11:10 | +35 min | M2 done: harness + goldens + dequant/arch spec verified first-hand |
 | ~12:00 | +50 min | M3 done: scratch engine token-exact on first run (p1); SRQ-grid finding; ~15 tok/s naive |
-| 11:27 | +70 min | M4 done: 15→90 tok/s (6×); must-beat NOT reached (88% of llama.cpp); cost model + rejected-experiments log above. **Total M0→M4 = 1h46 wall.** |
+| 11:27 | +70 min | M4 done at 90 tok/s (15→90, 6×); must-beat NOT reached (88% of llama.cpp); cost model + rejected-experiments log above. **Total M0→M4 = 1h46 wall.** |
+| ~11:45 | +15 min | M4 addendum: hoisted-activation dot → 10.92 ms = 91.6 tok/s final. User note recorded: this replication developed FASTER than hesper itself — the compact-surface/seconds-TAT effect, observed live. |
 
 ## Decision log
 
