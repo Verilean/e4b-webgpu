@@ -52,7 +52,7 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
       srqs[i * 2] = p.inS; srqs[i * 2 + 1] = p.outS;
     });
     return {
-      out: rows, bounds, inScales: parts.map((p) => p.inS),
+      out: rows, bounds, inScales: parts.map((p) => p.inS), outScales: parts.map((p) => p.outS),
       wBuf: upload(device, wAll), wsBuf: upload(device, wsAll),
       srqsBuf: upload(device, srqs),
     };
@@ -106,6 +106,8 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     l.qkvScales = upload(device, new Float32Array(l.qkv.inScales));
     l.gateUpScales = upload(device, new Float32Array(l.gu.inScales));
     l.pleGateScales = upload(device, new Float32Array([l.pleGate.inS]));
+    l.pleSrqs = upload(device, new Float32Array([l.pleGate.inS, l.pleGate.outS, l.pleProj.inS]));
+    l.guSrqs = upload(device, new Float32Array([...l.gu.inScales.flatMap((x, i) => [x, l.gu.outScales[i]]), l.down.inS]));
     layers.push(l);
     if (i % 7 === 0) L(`  layer ${i}/${C.layers}`);
   }
@@ -216,8 +218,7 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
         ropeK: await K.pipeline("rope", { HEADS: C.kvHeads, HEAD_DIM: headDim, ROPE_ANGLES: angles, THETA: theta, WG: 128 }),
         kvW: await K.pipeline("kvwrite", { N: C.kvHeads * headDim, WG: 128 }),
         headprep: await K.pipeline("headprep", { QH: C.qHeads, KVH: C.kvHeads, HEAD_DIM: headDim, ROPE_ANGLES: isSliding ? headDim / 2 : Math.floor(0.25 * headDim / 2), THETA: isSliding ? "10000.0" : "1000000.0", EPS: C.eps, WG: 128 }),
-        attA: await K.pipeline("attsplit", { Q_HEADS: C.qHeads, KV_HEADS: C.kvHeads, HEAD_DIM: headDim, MAXSEQ, WINDOW: isSliding ? C.window : 0, CS: 64, CHUNKS: MAXSEQ / 64 }),
-        attB: await K.pipeline("attcomb", { Q_HEADS: C.qHeads, HEAD_DIM: headDim, WINDOW: isSliding ? C.window : 0, CS: 64, CHUNKS: MAXSEQ / 64, WG: 128 }),
+        att1: await K.pipeline("attention1", { Q_HEADS: C.qHeads, KV_HEADS: C.kvHeads, HEAD_DIM: headDim, MAXSEQ, WINDOW: isSliding ? C.window : 0, DT: 4, WG: 64 }),
       });
     }
     return attKernCache.get(key);
@@ -226,8 +227,8 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     l.srqAttnOut = await srq8(C.qHeads * l.headDim);
     l.qkvMv = await K.pipeline("matvecg", { BITS: 4, IN: C.hidden, OUT: l.qkv.out,
       B0: l.qkv.bounds[0], B1: l.qkv.bounds[1] ?? l.qkv.bounds[0] });
-    l.guMv = await K.pipeline("matvecg", { BITS: 4, IN: C.hidden, OUT: l.gu.out,
-      B0: l.gu.bounds[0], B1: l.gu.bounds[1] });
+    l.guMv = await K.pipeline("matvecgu", { IN: C.hidden, OUT: C.inter });
+    l.pleGateMvF = await K.pipeline("plegatemv", { IN: C.hidden, OUT: C.pleDim, OFF: l.i * C.pleDim });
     l.oMv = await mv(4, C.qHeads * l.headDim, C.hidden);
     l.downMv = await mv(4, C.inter, C.hidden);
     l.pleGateMv = await mv(8, C.hidden, C.pleDim);
@@ -294,21 +295,17 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
       run(l.qkvMv, [A.xq3, l.qkv.wBuf, l.qkv.wsBuf, l.qkv.srqsBuf, A.qkv], wg2(Math.ceil(l.qkv.out / 2)));
       run(kk.headprep, [A.qkv, l.qNorm, l.isShared ? l.qNorm : l.kNorm, A.params, cache.kCache, cache.vCache],
           l.isShared ? C.qHeads : C.qHeads + 2 * C.kvHeads);
-      run(kk.attA, [qview, cache.kCache, cache.vCache, A.params, A.attPartO, A.attPartME], [C.qHeads, MAXSEQ / 64]);
-      run(kk.attB, [A.attPartO, A.attPartME, A.params, l.o.srqBuf, A.xq], C.qHeads);
+      run(kk.att1, [qview, cache.kCache, cache.vCache, A.params, l.o.srqBuf, A.xq], [C.qHeads, 4]);
       run(l.oMv, [A.xq, l.o.wBuf, l.o.wsBuf, l.o.srqBuf, A.tmp], Math.ceil(C.hidden / MV_R));
       // fused: residual add + pre-ffn norm + gate/up quant regions
       run(kern.rmsaccFfn, [A.tmp, l.postAttnNorm, A.hidden, l.preFfnNorm, l.gateUpScales, A.xq3], 1);
-      run(l.guMv, [A.xq3, l.gu.wBuf, l.gu.wsBuf, l.gu.srqsBuf, A.gu], wg2(Math.ceil(l.gu.out / 2)));
-      run(kern.gegluSrq, [{ buffer: A.gu, offset: 0, size: C.inter * 4 },
-                          { buffer: A.gu, offset: C.inter * 4, size: C.inter * 4 },
-                          l.down.srqBuf, A.xq], wg(C.inter / 4, 256));
+      run(l.guMv, [A.xq3, l.gu.wBuf, l.gu.wsBuf, l.guSrqs, A.xq], wg2(Math.ceil(C.inter / 4)));
       run(l.downMv, [A.xq, l.down.wBuf, l.down.wsBuf, l.down.srqBuf, A.tmp], Math.ceil(C.hidden / MV_R));
       // fused: residual add + pleGate quant (raw hidden, no norm)
       run(kern.rmsaccPle, [A.tmp, l.postFfnNorm, A.hidden, l.postFfnNorm, l.pleGateScales, A.xq], 1);
-      run(l.pleGateMv, [A.xq, l.pleGate.wBuf, l.pleGate.wsBuf, l.pleGate.srqBuf, A.pleGateOut], Math.ceil(C.pleDim / MV_R));
-      run(l.pleMulSrq, [A.pleGateOut, A.pleInput, l.pleProj.srqBuf, A.xq], wg(C.pleDim / 4, 64));
-      run(l.pleProjMv, [A.xq, l.pleProj.wBuf, l.pleProj.wsBuf, l.pleProj.srqBuf, A.tmp], Math.ceil(C.hidden / MV_R));
+      run(l.pleGateMvF, [A.xq, l.pleGate.wBuf, l.pleGate.wsBuf, l.pleSrqs, A.pleInput,
+                          { buffer: A.xq3, offset: 0, size: 256 }], C.pleDim / 4);
+      run(l.pleProjMv, [{ buffer: A.xq3, offset: 0, size: 256 }, l.pleProj.wBuf, l.pleProj.wsBuf, l.pleProj.srqBuf, A.tmp], Math.ceil(C.hidden / MV_R));
       // layer boundary: residual+layer_scalar + NEXT layer's input norm+quant, fused
       if (l.next && !AB_NOFUSE) {
         run(l.rmsaccNext, [A.tmp, l.postPleNorm, A.hidden, l.next.inNorm, l.next.qkvScales, A.xq3], 1);

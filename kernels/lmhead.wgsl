@@ -14,6 +14,7 @@ var<workgroup> xs: array<vec4<f32>, ${IN} / 4>;
 
 @compute @workgroup_size(32)
 fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+  if ((wid.y * 32768u + wid.x) * 32u >= ${OUT}u) { return; }   // excess-grid guard
   let nx = ${IN}u / 4u;
   for (var i = lid.x; i < nx; i = i + 32u) { xs[i] = x[i]; }
   workgroupBarrier();

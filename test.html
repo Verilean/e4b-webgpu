@@ -50,23 +50,26 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
       if (q.get("mv") === "1") {
         // pure-kernel BW: one gate matvec dispatched 96× in one pass, rotating 3
         // output buffers (minimize WAW serialization). 13.1MB weight read each.
+        const pure = async (label, kernE, bufs, groups, mb) => {
+          const enc = eng.device.createCommandEncoder();
+          const pass = enc.beginComputePass();
+          for (let i = 0; i < 64; i++) {
+            pass.setPipeline(kernE.pipeline);
+            pass.setBindGroup(0, eng.bindPub(kernE, bufs));
+            pass.dispatchWorkgroups(...(Array.isArray(groups) ? groups : [groups]));
+          }
+          pass.end();
+          const t0 = performance.now();
+          eng.device.queue.submit([enc.finish()]);
+          await eng.device.queue.onSubmittedWorkDone();
+          const dt = performance.now() - t0;
+          L(`mvbench ${label}: ${(dt * 1000 / 64).toFixed(1)}us each = ${(64 * mb / dt).toFixed(0)} GB/s`);
+        };
         const l = eng.layers[5];
-        const outs = [eng.A.gate, eng.A.up, eng.A.geglu];
-        const enc = eng.device.createCommandEncoder();
-        const pass = enc.beginComputePass();
-        for (let i = 0; i < 96; i++) {
-          pass.setPipeline(l.gateMv.pipeline);
-          const bg = eng.device.createBindGroup({ layout: l.gateMv.pipeline.getBindGroupLayout(0),
-            entries: [eng.A.xq, l.gate.wBuf, l.gate.wsBuf, l.gate.srqBuf, outs[i % 3]].map((b, j) => ({ binding: j, resource: { buffer: b } })) });
-          pass.setBindGroup(0, bg);
-          pass.dispatchWorkgroups(Math.ceil(eng.C.inter / 4));
-        }
-        pass.end();
-        const t0 = performance.now();
-        eng.device.queue.submit([enc.finish()]);
-        await eng.device.queue.onSubmittedWorkDone();
-        const dt = performance.now() - t0;
-        L(`mvbench: 96 gate matvecs in ${dt.toFixed(2)}ms = ${(dt * 1000 / 96).toFixed(1)}us each = ${(96 * 13.1 / dt).toFixed(0)} GB/s`);
+        await pure("guMv", l.guMv, [eng.A.xq3, l.gu.wBuf, l.gu.wsBuf, l.gu.srqsBuf, eng.A.gu], Math.ceil(l.gu.out / 2), 26.2);
+        await pure("downMv", l.downMv, [eng.A.xq, l.down.wBuf, l.down.wsBuf, l.down.srqBuf, eng.A.tmp], Math.ceil(eng.C.hidden / 2), 13.1);
+        await pure("lmhead", eng.kern.lmHead, [eng.A.normed, eng.model.lmHeadQ, eng.model.lmHeadS, eng.A.logits], [32768, Math.ceil(eng.C.vocab / 32 / 32768)], 167.8);
+        await pure("attA(sl)", l.kern.attA, [{ buffer: eng.A.qkv, offset: 0, size: l.qOut * 4 }, l.kCache ?? eng.layers[4].kCache, l.vCache ?? eng.layers[4].vCache, eng.A.params, eng.A.attPartO, eng.A.attPartME], [eng.C.qHeads, 10], 0.1);
       }
       const prof = await eng.profileStep(id, pos);
       if (prof) {
