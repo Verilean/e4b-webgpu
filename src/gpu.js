@@ -5,6 +5,7 @@ export async function initDevice() {
   const adapter = await navigator.gpu.requestAdapter();
   if (!adapter) throw new Error("no WebGPU adapter");
   const device = await adapter.requestDevice({
+    requiredFeatures: ["timestamp-query", "subgroups"].filter((f) => adapter.features.has(f)),
     requiredLimits: {
       maxStorageBufferBindingSize: Math.min(1 << 30, adapter.limits.maxStorageBufferBindingSize),
       maxBufferSize: Math.min(1 << 30, adapter.limits.maxBufferSize),

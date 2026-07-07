@@ -4,11 +4,11 @@
 // WINDOW = 0 → full causal; else attend positions [max(0, len-WINDOW), len).
 // params[1] = cacheLen (positions INCLUDING current).
 // Params: Q_HEADS, KV_HEADS, HEAD_DIM, MAXSEQ, WINDOW, WG
-@group(0) @binding(0) var<storage, read> q: array<f32>;        // [Q_HEADS*HEAD_DIM]
-@group(0) @binding(1) var<storage, read> kcache: array<f32>;
-@group(0) @binding(2) var<storage, read> vcache: array<f32>;
+@group(0) @binding(0) var<storage, read> q: array<vec4<f32>>;  // [Q_HEADS*HEAD_DIM/4]
+@group(0) @binding(1) var<storage, read> kcache: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read> vcache: array<vec4<f32>>;
 @group(0) @binding(3) var<storage, read> params: array<u32>;
-@group(0) @binding(4) var<storage, read_write> outv: array<f32>; // [Q_HEADS*HEAD_DIM]
+@group(0) @binding(4) var<storage, read_write> outv: array<vec4<f32>>;
 
 var<workgroup> scores: array<f32, ${MAXSEQ}>;
 var<workgroup> redbuf: array<f32, ${WG}>;
@@ -20,14 +20,15 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   let len = params[1];
   var start: u32 = 0u;
   if (${WINDOW}u != 0u && len > ${WINDOW}u) { start = len - ${WINDOW}u; }
-  let qBase = h * ${HEAD_DIM}u;
+  let hd4 = ${HEAD_DIM}u / 4u;
+  let qBase = h * hd4;
 
-  // scores[t] = dot(q, k_t)   (scaling = 1.0 in Gemma4)
+  // scores[t] = dot(q, k_t)   (scaling = 1.0 in Gemma4), vec4 lanes
   for (var t = start + lid.x; t < len; t = t + ${WG}u) {
-    let kBase = (t * ${KV_HEADS}u + kvh) * ${HEAD_DIM}u;
+    let kBase = (t * ${KV_HEADS}u + kvh) * hd4;
     var s: f32 = 0.0;
-    for (var d: u32 = 0u; d < ${HEAD_DIM}u; d = d + 1u) {
-      s = s + q[qBase + d] * kcache[kBase + d];
+    for (var d: u32 = 0u; d < hd4; d = d + 1u) {
+      s = s + dot(q[qBase + d], kcache[kBase + d]);
     }
     scores[t] = s;
   }
@@ -64,12 +65,11 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   }
   let denom = redbuf[0];
 
-  // out[d] = sum_t p_t * v_t[d]
-  for (var d = lid.x; d < ${HEAD_DIM}u; d = d + ${WG}u) {
-    var acc: f32 = 0.0;
+  // out[d4] = sum_t p_t * v_t[d4]  (vec4 lanes)
+  for (var d = lid.x; d < hd4; d = d + ${WG}u) {
+    var acc = vec4f(0.0);
     for (var t = start; t < len; t = t + 1u) {
-      let vBase = (t * ${KV_HEADS}u + kvh) * ${HEAD_DIM}u;
-      acc = acc + scores[t] * vcache[vBase + d];
+      acc = acc + scores[t] * vcache[(t * ${KV_HEADS}u + kvh) * hd4 + d];
     }
     outv[qBase + d] = acc / denom;
   }

@@ -27,12 +27,42 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
   const f32buf = (t) => upload(device, t.dtype === "BF16" ? bf16ToF32(t.buf) : new Float32Array(t.buf));
   const scalar = (t) => (t.dtype === "BF16" ? bf16ToF32(t.buf) : new Float32Array(t.buf))[0];
 
+  async function linearConcat(prefixes) {
+    // concat rows of several int4 linears (same IN) into one grouped matvec
+    const parts = [];
+    for (const pf of prefixes) {
+      parts.push({
+        w: await st.fetch(pf + ".weight"),
+        ws: new Float32Array((await st.fetch(pf + ".weight_scale")).buf),
+        inS: scalar(await st.fetch(pf + ".input_activation_scale")),
+        outS: scalar(await st.fetch(pf + ".output_activation_scale")),
+      });
+    }
+    const wBytes = parts.reduce((a, p) => a + p.w.buf.byteLength, 0);
+    const wAll = new Uint8Array(wBytes);
+    const wsAll = new Float32Array(parts.reduce((a, p) => a + p.ws.length, 0));
+    const srqs = new Float32Array(parts.length * 2);
+    const bounds = [];
+    let wo = 0, so = 0, rows = 0;
+    parts.forEach((p, i) => {
+      wAll.set(new Uint8Array(p.w.buf), wo); wo += p.w.buf.byteLength;
+      wsAll.set(p.ws, so); so += p.ws.length;
+      rows += p.w.shape[0]; bounds.push(rows);
+      srqs[i * 2] = p.inS; srqs[i * 2 + 1] = p.outS;
+    });
+    return {
+      out: rows, bounds, inScales: parts.map((p) => p.inS),
+      wBuf: upload(device, wAll), wsBuf: upload(device, wsAll),
+      srqsBuf: upload(device, srqs),
+    };
+  }
+
   async function linear(prefix) {
     const w = await st.fetch(prefix + ".weight");
     const inS = scalar(await st.fetch(prefix + ".input_activation_scale"));
     const outS = scalar(await st.fetch(prefix + ".output_activation_scale"));
     return {
-      out: w.shape[0],
+      out: w.shape[0], inS, outS,
       wBuf: upload(device, new Uint8Array(w.buf)),
       wsBuf: upload(device, new Float32Array((await st.fetch(prefix + ".weight_scale")).buf)),
       srqBuf: upload(device, new Float32Array([inS, outS]), GPUBufferUsage.UNIFORM),
@@ -55,22 +85,26 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
       postFfnNorm: f32buf(await st.fetch(p + "post_feedforward_layernorm.weight")),
       postPleNorm: f32buf(await st.fetch(p + "post_per_layer_input_norm.weight")),
       layerScalar: f32buf(await st.fetch(p + "layer_scalar")),
+      layerScalarVal: scalar(await st.fetch(p + "layer_scalar")),
       qNorm: f32buf(await st.fetch(p + "self_attn.q_norm.weight")),
-      q: await linear(p + "self_attn.q_proj"),
+      qkv: await linearConcat(isShared
+        ? [p + "self_attn.q_proj"]
+        : [p + "self_attn.q_proj", p + "self_attn.k_proj", p + "self_attn.v_proj"]),
+      qOut: C.qHeads * headDim, kvOut: C.kvHeads * headDim,
       o: await linear(p + "self_attn.o_proj"),
-      gate: await linear(p + "mlp.gate_proj"),
-      up: await linear(p + "mlp.up_proj"),
+      gu: await linearConcat([p + "mlp.gate_proj", p + "mlp.up_proj"]),
       down: await linear(p + "mlp.down_proj"),
       pleGate: await linear(p + "per_layer_input_gate"),
       pleProj: await linear(p + "per_layer_projection"),
     };
     if (!isShared) {
       l.kNorm = f32buf(await st.fetch(p + "self_attn.k_norm.weight"));
-      l.k = await linear(p + "self_attn.k_proj");
-      l.v = await linear(p + "self_attn.v_proj");
       l.kCache = alloc(device, MAXSEQ * C.kvHeads * headDim * 4);
       l.vCache = alloc(device, MAXSEQ * C.kvHeads * headDim * 4);
     }
+    l.qkvScales = upload(device, new Float32Array(l.qkv.inScales));
+    l.gateUpScales = upload(device, new Float32Array(l.gu.inScales));
+    l.pleGateScales = upload(device, new Float32Array([l.pleGate.inS]));
     layers.push(l);
     if (i % 7 === 0) L(`  layer ${i}/${C.layers}`);
   }
@@ -90,7 +124,20 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     pleProjScale: upload(device, new Float32Array(PLE_TOTAL).fill(1 / Math.sqrt(C.hidden))),
     pleProjNorm: f32buf(await st.fetch(P + "per_layer_projection_norm.weight")),
     finalNorm: f32buf(await st.fetch(P + "norm.weight")),
-    lmHeadQ: upload(device, new Uint8Array((await st.fetch("lm_head.weight")).buf)),
+    lmHeadQ: upload(device, await (async () => {
+      // repack row-major int2 rows (IN/4 bytes each) into 32-row tiles laid out
+      // [vec4word j][row t] so subgroup reads are coalesced (see lmhead.wgsl)
+      const raw = new Uint32Array((await st.fetch("lm_head.weight")).buf.slice(0));
+      const rows = C.vocab, vwords = C.hidden / 64;           // vec4<u32> per row
+      const out = new Uint32Array(rows * vwords * 4);
+      for (let r = 0; r < rows; r++) {
+        const tile = (r >> 5), t = r & 31;
+        for (let j = 0; j < vwords; j++)
+          for (let h = 0; h < 4; h++)
+            out[(tile * vwords * 32 + j * 32 + t) * 4 + h] = raw[r * vwords * 4 + j * 4 + h];
+      }
+      return out;
+    })()),
     lmHeadS: upload(device, new Float32Array((await st.fetch("lm_head.weight_scale")).buf)),
     lmHeadSrq: upload(device, new Float32Array([
       scalar(await st.fetch("lm_head.input_activation_scale")),
@@ -105,13 +152,11 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     normed: alloc(device, C.hidden * 4),
     tmp: alloc(device, C.hidden * 4),
     tmp2: alloc(device, C.hidden * 4),
-    q: alloc(device, C.qHeads * C.globalHeadDim * 4),
-    kv: alloc(device, C.kvHeads * C.globalHeadDim * 4),
-    kv2: alloc(device, C.kvHeads * C.globalHeadDim * 4),
+    qkv: alloc(device, (C.qHeads + 2 * C.kvHeads) * C.globalHeadDim * 4),
     attnOut: alloc(device, C.qHeads * C.globalHeadDim * 4),
-    gate: alloc(device, C.inter * 4),
-    up: alloc(device, C.inter * 4),
-    geglu: alloc(device, C.inter * 4),
+    attPartO: alloc(device, C.qHeads * (MAXSEQ / 64) * C.globalHeadDim * 4),
+    attPartME: alloc(device, C.qHeads * (MAXSEQ / 64) * 8),
+    gu: alloc(device, 2 * C.inter * 4),
     pleIdentity: alloc(device, PLE_TOTAL * 4),
     pleProj: alloc(device, PLE_TOTAL * 4),
     pleNormed: alloc(device, PLE_TOTAL * 4),
@@ -119,12 +164,22 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     pleGateOut: alloc(device, C.pleDim * 4),
     pleMul: alloc(device, C.pleDim * 4),
     logits: alloc(device, C.vocab * 4),
+    xq: alloc(device, Math.ceil(C.inter / 4) * 4),         // packed int8 activation (max IN)
+    xq3: alloc(device, 3 * C.hidden),                       // 3 offset regions (qkv / gate+up)
+    amax: alloc(device, 16),
+    amaxPart: alloc(device, 256 * 8),
     srqOff: upload(device, new Float32Array([0, 0]), GPUBufferUsage.UNIFORM),
     combineScale: upload(device, new Float32Array([Math.SQRT1_2])),
   };
 
   // ---- pipelines ----
-  const mv = (bits, IN, OUT) => K.pipeline("matvec", { BITS: bits, IN, OUT, WG: 64, SOFTCAP: "0.0" });
+  const MV_R = 2;
+  const mv = (bits, IN, OUT) => K.pipeline("matvec4", { BITS: bits, IN, OUT, SOFTCAP: "0.0" });
+  const srqCache = new Map();
+  const srq8 = async (N) => {
+    if (!srqCache.has(N)) srqCache.set(N, await K.pipeline("srq8", { N, WG: 64 }));
+    return srqCache.get(N);
+  };
   const kern = {
     embed: await K.pipeline("embedrow", { N: C.hidden, BLOCKS: 1, MULT: Math.sqrt(C.hidden).toFixed(8), PARAM_IDX: 2, WG: 256 }),
     pleRow: await K.pipeline("embedrow", { N: PLE_TOTAL, BLOCKS: C.layers, MULT: Math.sqrt(C.pleDim).toFixed(8), PARAM_IDX: 2, WG: 256 }),
@@ -134,8 +189,18 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     accMulH: await K.pipeline("accmul", { N: C.hidden, WG: 256 }),
     addMulPle: await K.pipeline("addmul", { N: PLE_TOTAL, WG: 256 }),
     gegluMul: await K.pipeline("geglumul", { N: C.inter, WG: 256 }),
-    pleProjMv: await K.pipeline("matvec", { BITS: 32, IN: C.hidden, OUT: PLE_TOTAL, WG: 64, SOFTCAP: "0.0" }),
-    lmHead: await K.pipeline("matvec", { BITS: 2, IN: C.hidden, OUT: C.vocab, WG: 64, SOFTCAP: C.softcap.toFixed(1) }),
+    pleProjMv: await K.pipeline("matvec2f", { BITS: 32, IN: C.hidden, OUT: PLE_TOTAL, WG: 64, SOFTCAP: "0.0" }),
+    lmHead: await K.pipeline("lmhead", { IN: C.hidden, OUT: C.vocab, SOFTCAP: C.softcap.toFixed(1) }),
+    srqH: await (async () => K.pipeline("srq8", { N: C.hidden, WG: 64 }))().then(x=>x),
+    argmax0: await K.pipeline("argmax2", { N: C.vocab, PARTS: 256, STAGE: 0, WG: 256 }),
+    argmax1: await K.pipeline("argmax2", { N: C.vocab, PARTS: 256, STAGE: 1, WG: 256 }),
+    rmssrq1: await K.pipeline("rmssrq", { DIM: C.hidden, NS: 1, EPS: C.eps, WG: 256 }),
+    rmssrq2: await K.pipeline("rmssrq", { DIM: C.hidden, NS: 2, EPS: C.eps, WG: 256 }),
+    rmssrq3: await K.pipeline("rmssrq", { DIM: C.hidden, NS: 3, EPS: C.eps, WG: 256 }),
+    rmsacc: await K.pipeline("rmsacc", { DIM: C.hidden, EPS: C.eps, MUL: "1.0", WG: 256 }),
+    gegluSrq: await K.pipeline("geglusrq", { N: C.inter, WG: 256 }),
+    rmsaccFfn: await K.pipeline("rmsaccsrq", { DIM: C.hidden, NS: 2, EPS: C.eps, MUL: "1.0", NORM2: 1, WG: 256 }),
+    rmsaccPle: await K.pipeline("rmsaccsrq", { DIM: C.hidden, NS: 1, EPS: C.eps, MUL: "1.0", NORM2: 0, WG: 256 }),
   };
   const attKernCache = new Map();
   async function attKerns(headDim, isSliding) {
@@ -149,21 +214,26 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
         ropeQ: await K.pipeline("rope", { HEADS: C.qHeads, HEAD_DIM: headDim, ROPE_ANGLES: angles, THETA: theta, WG: 128 }),
         ropeK: await K.pipeline("rope", { HEADS: C.kvHeads, HEAD_DIM: headDim, ROPE_ANGLES: angles, THETA: theta, WG: 128 }),
         kvW: await K.pipeline("kvwrite", { N: C.kvHeads * headDim, WG: 128 }),
-        attn: await K.pipeline("attention", { Q_HEADS: C.qHeads, KV_HEADS: C.kvHeads, HEAD_DIM: headDim, MAXSEQ, WINDOW: isSliding ? C.window : 0, WG: 128 }),
+        qprep: await K.pipeline("qprep", { HEADS: C.qHeads, HEAD_DIM: headDim, ROPE_ANGLES: isSliding ? headDim / 2 : Math.floor(0.25 * headDim / 2), THETA: isSliding ? "10000.0" : "1000000.0", EPS: C.eps, WG: 128 }),
+        kvprep: await K.pipeline("kvprep", { KV_HEADS: C.kvHeads, HEAD_DIM: headDim, ROPE_ANGLES: isSliding ? headDim / 2 : Math.floor(0.25 * headDim / 2), THETA: isSliding ? "10000.0" : "1000000.0", EPS: C.eps, WG: 128 }),
+        attA: await K.pipeline("attsplit", { Q_HEADS: C.qHeads, KV_HEADS: C.kvHeads, HEAD_DIM: headDim, MAXSEQ, WINDOW: isSliding ? C.window : 0, CS: 64, CHUNKS: MAXSEQ / 64 }),
+        attB: await K.pipeline("attcomb", { Q_HEADS: C.qHeads, HEAD_DIM: headDim, WINDOW: isSliding ? C.window : 0, CS: 64, CHUNKS: MAXSEQ / 64, WG: 128 }),
       });
     }
     return attKernCache.get(key);
   }
   for (const l of layers) {
-    l.qMv = await mv(4, C.hidden, l.q.out);
+    l.srqAttnOut = await srq8(C.qHeads * l.headDim);
+    l.qkvMv = await K.pipeline("matvecg", { BITS: 4, IN: C.hidden, OUT: l.qkv.out,
+      B0: l.qkv.bounds[0], B1: l.qkv.bounds[1] ?? l.qkv.bounds[0] });
+    l.guMv = await K.pipeline("matvecg", { BITS: 4, IN: C.hidden, OUT: l.gu.out,
+      B0: l.gu.bounds[0], B1: l.gu.bounds[1] });
     l.oMv = await mv(4, C.qHeads * l.headDim, C.hidden);
-    l.gateMv = await mv(4, C.hidden, C.inter);
-    l.upMv = await mv(4, C.hidden, C.inter);
     l.downMv = await mv(4, C.inter, C.hidden);
     l.pleGateMv = await mv(8, C.hidden, C.pleDim);
     l.pleProjMv = await mv(8, C.pleDim, C.hidden);
-    l.pleMulK = await K.pipeline("plemul", { N: C.pleDim, OFF: l.i * C.pleDim, WG: 64 });
-    if (!l.isShared) { l.kMv = await mv(4, C.hidden, l.k.out); l.vMv = await mv(4, C.hidden, l.v.out); }
+    l.pleMulSrq = await K.pipeline("plemulsrq", { N: C.pleDim, OFF: l.i * C.pleDim, WG: 64 });
+    l.rmsaccMul = await K.pipeline("rmsacc", { DIM: C.hidden, EPS: C.eps, MUL: l.layerScalarVal.toPrecision(9), WG: 256 });
     l.kern = await attKerns(l.headDim, l.isSliding);
   }
   L("pipelines built");
@@ -171,12 +241,16 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
   // ---- bind-group cache (engine-level) ----
   const bgCache = new Map();
   function bind(kernEntry, buffers) {
-    const key = kernEntry.pipeline.label + "|" + buffers.map((b) => b.__id ?? (b.__id = Math.random())).join(",");
+    const key = kernEntry.pipeline.label + "|" + buffers.map((b) => {
+      const buf = b.buffer ?? b;
+      return (buf.__id ?? (buf.__id = Math.random())) + ":" + (b.offset ?? 0);
+    }).join(",");
     let bg = bgCache.get(key);
     if (!bg) {
       bg = device.createBindGroup({
         layout: kernEntry.pipeline.getBindGroupLayout(0),
-        entries: buffers.map((b, i) => ({ binding: i, resource: { buffer: b } })),
+        entries: buffers.map((b, i) => ({ binding: i,
+          resource: b.buffer ? { buffer: b.buffer, offset: b.offset, size: b.size } : { buffer: b } })),
       });
       bgCache.set(key, bg);
     }
@@ -185,76 +259,111 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
 
   // ---- forward: one token, one compute pass ----
   const wg = (n, w) => Math.ceil(n / w);
-  const mkRun = (pass) => (k, bufs, groups) => { pass.setPipeline(k.pipeline); pass.setBindGroup(0, bind(k, bufs)); pass.dispatchWorkgroups(groups); };
+  const mkRun = (pass) => (k, bufs, groups) => { pass.setPipeline(k.pipeline); pass.setBindGroup(0, bind(k, bufs)); pass.dispatchWorkgroups(...(Array.isArray(groups) ? groups : [groups])); };
+  const wg2 = (rows) => rows <= 32768 ? [rows] : [32768, Math.ceil(rows / 32768)];
 
-  function encodePre(pass) {
-    const run = mkRun(pass);
+  function encodePre(ctx) {
+    const run = ctx.run;
     run(kern.embed, [model.embQ, model.embS, A.params, A.hidden], wg(C.hidden, 256));
     // PLE inputs: identity + context projection
     run(kern.pleRow, [model.pleQ, model.pleS, A.params, A.pleIdentity], wg(PLE_TOTAL, 256));
-    run(kern.pleProjMv, [A.hidden, model.pleProjW, model.pleProjScale, A.srqOff, A.pleProj], wg(PLE_TOTAL, 64));
+    run(kern.pleProjMv, [A.hidden, model.pleProjW, model.pleProjScale, A.srqOff, A.pleProj], PLE_TOTAL);
     // norm per 256-block (42 rows), then (proj + identity) * 2^-0.5
     run(kern.rmsPle, [A.pleProj, model.pleProjNorm, A.pleNormed], C.layers);
     run(kern.addMulPle, [A.pleNormed, A.pleIdentity, A.combineScale, A.pleInput], wg(PLE_TOTAL, 256));
   }
 
-  function encodeLayer(pass, l) {
-      const run = mkRun(pass);
+  function encodeLayer(ctx, l) {
+      const run = ctx.run;
       const kk = l.kern;
       const cache = l.isShared ? l.cacheSrc : l;
-      // attention
-      run(kern.rmsHidden, [A.hidden, l.inNorm, A.normed], 1);
-      run(l.qMv, [A.normed, l.q.wBuf, l.q.wsBuf, l.q.srqBuf, A.q], wg(l.q.out, 64));
-      run(kk.qNorm, [l.qNorm, A.q], C.qHeads);
-      run(kk.ropeQ, [A.q, A.params], wg(C.qHeads * l.headDim / 2, 128));
+      const xv = (r) => ({ buffer: A.xq3, offset: r * C.hidden, size: C.hidden });
+      const qview = { buffer: A.qkv, offset: 0, size: l.qOut * 4 };
+      const kview = { buffer: A.qkv, offset: l.qOut * 4, size: l.kvOut * 4 };
+      const vview = { buffer: A.qkv, offset: (l.qOut + l.kvOut) * 4, size: l.kvOut * 4 };
+      // attention: fused norm+quant → grouped qkv matvec → fused head prep
+      run(l.isShared ? kern.rmssrq1 : kern.rmssrq3, [A.hidden, l.inNorm, l.qkvScales, A.xq3], 1);
+      run(l.qkvMv, [A.xq3, l.qkv.wBuf, l.qkv.wsBuf, l.qkv.srqsBuf, A.qkv], wg2(Math.ceil(l.qkv.out / 2)));
+      run(kk.qprep, [l.qNorm, A.params, qview], C.qHeads);
       if (!l.isShared) {
-        run(l.kMv, [A.normed, l.k.wBuf, l.k.wsBuf, l.k.srqBuf, A.kv], wg(l.k.out, 64));
-        run(kk.qNorm, [l.kNorm, A.kv], C.kvHeads);               // k_norm (same kernel shape)
-        run(kk.ropeK, [A.kv, A.params], wg(C.kvHeads * l.headDim / 2, 128));
-        run(kk.kvW, [A.kv, A.params, l.kCache], wg(C.kvHeads * l.headDim, 128));
-        run(l.vMv, [A.normed, l.v.wBuf, l.v.wsBuf, l.v.srqBuf, A.kv2], wg(l.v.out, 64));
-        run(kk.vNorm, [l.qNorm /*unused dummy*/, A.kv2], C.kvHeads);
-        run(kk.kvW, [A.kv2, A.params, l.vCache], wg(C.kvHeads * l.headDim, 128));
+        run(kk.kvprep, [kview, vview, l.kNorm, A.params, l.kCache, l.vCache], 2 * C.kvHeads);
       }
-      run(kk.attn, [A.q, cache.kCache, cache.vCache, A.params, A.attnOut], C.qHeads);
-      run(l.oMv, [A.attnOut, l.o.wBuf, l.o.wsBuf, l.o.srqBuf, A.tmp], wg(C.hidden, 64));
-      run(kern.rmsHidden, [A.tmp, l.postAttnNorm, A.tmp2], 1);
-      run(kern.accH, [A.tmp2, A.hidden], wg(C.hidden, 256));
-      // mlp
-      run(kern.rmsHidden, [A.hidden, l.preFfnNorm, A.normed], 1);
-      run(l.gateMv, [A.normed, l.gate.wBuf, l.gate.wsBuf, l.gate.srqBuf, A.gate], wg(C.inter, 64));
-      run(l.upMv, [A.normed, l.up.wBuf, l.up.wsBuf, l.up.srqBuf, A.up], wg(C.inter, 64));
-      run(kern.gegluMul, [A.gate, A.up, A.geglu], wg(C.inter, 256));
-      run(l.downMv, [A.geglu, l.down.wBuf, l.down.wsBuf, l.down.srqBuf, A.tmp], wg(C.hidden, 64));
-      run(kern.rmsHidden, [A.tmp, l.postFfnNorm, A.tmp2], 1);
-      run(kern.accH, [A.tmp2, A.hidden], wg(C.hidden, 256));
-      // PLE block (+ layer_scalar folded into the final addmul)
-      run(l.pleGateMv, [A.hidden, l.pleGate.wBuf, l.pleGate.wsBuf, l.pleGate.srqBuf, A.pleGateOut], wg(C.pleDim, 64));
-      run(l.pleMulK, [A.pleGateOut, A.pleInput, A.pleMul], wg(C.pleDim, 64));
-      run(l.pleProjMv, [A.pleMul, l.pleProj.wBuf, l.pleProj.wsBuf, l.pleProj.srqBuf, A.tmp], wg(C.hidden, 64));
-      run(kern.rmsHidden, [A.tmp, l.postPleNorm, A.tmp2], 1);
-      run(kern.accMulH, [A.tmp2, l.layerScalar, A.hidden], wg(C.hidden, 256));
+      run(kk.attA, [qview, cache.kCache, cache.vCache, A.params, A.attPartO, A.attPartME], [C.qHeads, MAXSEQ / 64]);
+      run(kk.attB, [A.attPartO, A.attPartME, A.params, A.attnOut], C.qHeads);
+      run(l.srqAttnOut, [A.attnOut, l.o.srqBuf, A.xq], wg((C.qHeads * l.headDim) / 4, 64));
+      run(l.oMv, [A.xq, l.o.wBuf, l.o.wsBuf, l.o.srqBuf, A.tmp], Math.ceil(C.hidden / MV_R));
+      // fused: residual add + pre-ffn norm + gate/up quant regions
+      run(kern.rmsaccFfn, [A.tmp, l.postAttnNorm, A.hidden, l.preFfnNorm, l.gateUpScales, A.xq3], 1);
+      run(l.guMv, [A.xq3, l.gu.wBuf, l.gu.wsBuf, l.gu.srqsBuf, A.gu], wg2(Math.ceil(l.gu.out / 2)));
+      run(kern.gegluSrq, [{ buffer: A.gu, offset: 0, size: C.inter * 4 },
+                          { buffer: A.gu, offset: C.inter * 4, size: C.inter * 4 },
+                          l.down.srqBuf, A.xq], wg(C.inter / 4, 256));
+      run(l.downMv, [A.xq, l.down.wBuf, l.down.wsBuf, l.down.srqBuf, A.tmp], Math.ceil(C.hidden / MV_R));
+      // fused: residual add + pleGate quant (raw hidden, no norm)
+      run(kern.rmsaccPle, [A.tmp, l.postFfnNorm, A.hidden, l.postFfnNorm, l.pleGateScales, A.xq], 1);
+      run(l.pleGateMv, [A.xq, l.pleGate.wBuf, l.pleGate.wsBuf, l.pleGate.srqBuf, A.pleGateOut], Math.ceil(C.pleDim / MV_R));
+      run(l.pleMulSrq, [A.pleGateOut, A.pleInput, l.pleProj.srqBuf, A.xq], wg(C.pleDim / 4, 64));
+      run(l.pleProjMv, [A.xq, l.pleProj.wBuf, l.pleProj.wsBuf, l.pleProj.srqBuf, A.tmp], Math.ceil(C.hidden / MV_R));
+      run(l.rmsaccMul, [A.tmp, l.postPleNorm, A.hidden], 1);
   }
 
-  function encodeFinal(pass) {
-    const run = mkRun(pass);
+  function encodeFinal(ctx) {
+    const run = ctx.run;
     run(kern.rmsHidden, [A.hidden, model.finalNorm, A.normed], 1);
-    run(kern.lmHead, [A.normed, model.lmHeadQ, model.lmHeadS, model.lmHeadSrq, A.logits], wg(C.vocab, 64));
+    run(kern.lmHead, [A.normed, model.lmHeadQ, model.lmHeadS, A.logits], wg2(C.vocab / 32));
+    run(kern.argmax0, [A.logits, A.amaxPart, A.amax], 256);
+    run(kern.argmax1, [A.logits, A.amaxPart, A.amax], 1);
   }
 
-  function encodeForward(pass) {
-    encodePre(pass);
-    for (const l of layers) encodeLayer(pass, l);
-    encodeFinal(pass);
+  function encodeForward(ctx) {
+    encodePre(ctx);
+    for (const l of layers) encodeLayer(ctx, l);
+    encodeFinal(ctx);
   }
 
   async function step(token, pos) {
     device.queue.writeBuffer(A.params, 0, new Uint32Array([pos, pos + 1, token, 0]));
     const enc = device.createCommandEncoder();
     const pass = enc.beginComputePass();
-    encodeForward(pass);
+    encodeForward({ run: mkRun(pass) });
     pass.end();
     device.queue.submit([enc.finish()]);
+  }
+
+  // GPU per-dispatch budget: pass-per-dispatch with timestamp queries.
+  // NOTE (hesper lesson): pass-per-dispatch serializes — per-class times are upper
+  // bounds and their sum exceeds the real single-pass wall. Use for RANKING only.
+  async function profileStep(token, pos) {
+    if (!device.features.has("timestamp-query")) return null;
+    device.queue.writeBuffer(A.params, 0, new Uint32Array([pos, pos + 1, token, 0]));
+    const qs = device.createQuerySet({ type: "timestamp", count: 4096 });
+    const enc = device.createCommandEncoder();
+    const labels = [];
+    const ctx = { run: (k, bufs, groups) => {
+      const i = labels.length;
+      const pass = enc.beginComputePass({ timestampWrites: {
+        querySet: qs, beginningOfPassWriteIndex: 2 * i, endOfPassWriteIndex: 2 * i + 1 } });
+      pass.setPipeline(k.pipeline);
+      pass.setBindGroup(0, bind(k, bufs));
+      pass.dispatchWorkgroups(...(Array.isArray(groups) ? groups : [groups]));
+      pass.end();
+      labels.push(k.pipeline.label);
+    } };
+    encodeForward(ctx);
+    const qbuf = device.createBuffer({ size: labels.length * 16,
+      usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC });
+    enc.resolveQuerySet(qs, 0, labels.length * 2, qbuf, 0);
+    device.queue.submit([enc.finish()]);
+    const t = new BigUint64Array(await readback(device, qbuf, labels.length * 16));
+    const agg = new Map();
+    labels.forEach((lb, i) => {
+      const us = Number(t[2 * i + 1] - t[2 * i]) / 1000;
+      const e = agg.get(lb) ?? { us: 0, n: 0 };
+      e.us += us; e.n += 1;
+      agg.set(lb, e);
+    });
+    qs.destroy(); qbuf.destroy();
+    return agg;
   }
 
   async function argmaxLogits() {
@@ -264,16 +373,21 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     return { id: best, logits: buf };
   }
 
+  async function argmaxFast() {
+    const u = new Uint32Array(await readback(device, A.amax, 8));
+    return u[0];
+  }
+
   async function generate(inputIds, maxNew, onToken = null) {
     let pos = 0;
     for (const t of inputIds) await step(t, pos++);
     const out = [];
-    let { id } = await argmaxLogits();
+    let id = await argmaxFast();
     out.push(id);
     onToken?.(id);
     while (out.length < maxNew) {
       await step(id, pos++);
-      ({ id } = await argmaxLogits());
+      id = await argmaxFast();
       out.push(id);
       onToken?.(id);
     }
@@ -285,21 +399,21 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     device.queue.writeBuffer(A.params, 0, new Uint32Array([pos, pos + 1, token, 0]));
     let enc = device.createCommandEncoder();
     let pass = enc.beginComputePass();
-    encodePre(pass);
+    encodePre({ run: mkRun(pass) });
     pass.end();
     device.queue.submit([enc.finish()]);
     await cb("embed", new Float32Array(await readback(device, A.hidden, C.hidden * 4)));
     for (const l of layers) {
       enc = device.createCommandEncoder();
       pass = enc.beginComputePass();
-      encodeLayer(pass, l);
+      encodeLayer({ run: mkRun(pass) }, l);
       pass.end();
       device.queue.submit([enc.finish()]);
       await cb("layer" + l.i, new Float32Array(await readback(device, A.hidden, C.hidden * 4)));
     }
     enc = device.createCommandEncoder();
     pass = enc.beginComputePass();
-    encodeFinal(pass);
+    encodeFinal({ run: mkRun(pass) });
     pass.end();
     device.queue.submit([enc.finish()]);
   }
@@ -308,5 +422,5 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     return new Float32Array(await readback(device, A.hidden, C.hidden * 4));
   }
 
-  return { device, C, layers, model, A, kern, step, generate, argmaxLogits, readHidden, encodeForward, stepBisect };
+  return { device, C, layers, model, A, kern, step, generate, argmaxLogits, argmaxFast, readHidden, encodeForward, stepBisect, profileStep };
 }

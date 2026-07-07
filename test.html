@@ -28,6 +28,57 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
       L("DONE");
       return;
     }
+    if (q.get("mode") === "bench") {
+      // steady decode timing + per-class GPU budget. Honest loop = step + argmax readback.
+      const g = goldens.prompts[0];
+      let pos = 0;
+      for (const t of g.input_ids) await eng.step(t, pos++);
+      let id = await eng.argmaxFast();
+      const nSteps = parseInt(q.get("n") ?? "64");
+      const times = [];
+      for (let i = 0; i < nSteps; i++) {
+        const t0 = performance.now();
+        await eng.step(id, pos++);
+        id = await eng.argmaxFast();
+        times.push(performance.now() - t0);
+      }
+      times.sort((a, b) => a - b);
+      const med = times[times.length >> 1];
+      const mean = times.reduce((a, b) => a + b, 0) / times.length;
+      const GB = 2.20;   // per-token weight read (DEVPLAN M0)
+      L(`decode: median=${med.toFixed(2)}ms mean=${mean.toFixed(2)}ms  ${(1000 / med).toFixed(1)} tok/s  effBW=${(GB / (med / 1000)).toFixed(0)} GB/s  (n=${nSteps})`);
+      if (q.get("mv") === "1") {
+        // pure-kernel BW: one gate matvec dispatched 96× in one pass, rotating 3
+        // output buffers (minimize WAW serialization). 13.1MB weight read each.
+        const l = eng.layers[5];
+        const outs = [eng.A.gate, eng.A.up, eng.A.geglu];
+        const enc = eng.device.createCommandEncoder();
+        const pass = enc.beginComputePass();
+        for (let i = 0; i < 96; i++) {
+          pass.setPipeline(l.gateMv.pipeline);
+          const bg = eng.device.createBindGroup({ layout: l.gateMv.pipeline.getBindGroupLayout(0),
+            entries: [eng.A.xq, l.gate.wBuf, l.gate.wsBuf, l.gate.srqBuf, outs[i % 3]].map((b, j) => ({ binding: j, resource: { buffer: b } })) });
+          pass.setBindGroup(0, bg);
+          pass.dispatchWorkgroups(Math.ceil(eng.C.inter / 4));
+        }
+        pass.end();
+        const t0 = performance.now();
+        eng.device.queue.submit([enc.finish()]);
+        await eng.device.queue.onSubmittedWorkDone();
+        const dt = performance.now() - t0;
+        L(`mvbench: 96 gate matvecs in ${dt.toFixed(2)}ms = ${(dt * 1000 / 96).toFixed(1)}us each = ${(96 * 13.1 / dt).toFixed(0)} GB/s`);
+      }
+      const prof = await eng.profileStep(id, pos);
+      if (prof) {
+        const rows = [...prof.entries()].sort((a, b) => b[1].us - a[1].us);
+        const tot = rows.reduce((a, r) => a + r[1].us, 0);
+        L(`profile total (serialized upper bound): ${(tot / 1000).toFixed(2)}ms`);
+        for (const [lb, e] of rows.slice(0, 14))
+          L(`  ${(e.us / 1000).toFixed(3)}ms  x${e.n}  ${lb.slice(0, 110)}`);
+      } else L("timestamp-query unavailable");
+      L("DONE");
+      return;
+    }
     if (q.get("mode") === "bisect") {
       // per-layer hidden comparison vs goldens.layer_fingerprints (p0, last prompt position)
       const g = goldens.prompts[0];
