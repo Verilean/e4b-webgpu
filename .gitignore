@@ -1,0 +1,4 @@
+model/
+*.safetensors
+goldens/*.bin
+node_modules/
