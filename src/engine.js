@@ -5,6 +5,7 @@ import { initDevice, upload, alloc, readback, Kernels } from "./gpu.js";
 
 const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => {});
 const MAXSEQ = 640;
+const AB_NOFUSE = new URLSearchParams(location.search).get("nofuse") === "1";
 
 export async function loadEngine(modelUrl = "model/model.safetensors", configUrl = "model/config.json") {
   const t0 = performance.now();
@@ -214,8 +215,7 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
         ropeQ: await K.pipeline("rope", { HEADS: C.qHeads, HEAD_DIM: headDim, ROPE_ANGLES: angles, THETA: theta, WG: 128 }),
         ropeK: await K.pipeline("rope", { HEADS: C.kvHeads, HEAD_DIM: headDim, ROPE_ANGLES: angles, THETA: theta, WG: 128 }),
         kvW: await K.pipeline("kvwrite", { N: C.kvHeads * headDim, WG: 128 }),
-        qprep: await K.pipeline("qprep", { HEADS: C.qHeads, HEAD_DIM: headDim, ROPE_ANGLES: isSliding ? headDim / 2 : Math.floor(0.25 * headDim / 2), THETA: isSliding ? "10000.0" : "1000000.0", EPS: C.eps, WG: 128 }),
-        kvprep: await K.pipeline("kvprep", { KV_HEADS: C.kvHeads, HEAD_DIM: headDim, ROPE_ANGLES: isSliding ? headDim / 2 : Math.floor(0.25 * headDim / 2), THETA: isSliding ? "10000.0" : "1000000.0", EPS: C.eps, WG: 128 }),
+        headprep: await K.pipeline("headprep", { QH: C.qHeads, KVH: C.kvHeads, HEAD_DIM: headDim, ROPE_ANGLES: isSliding ? headDim / 2 : Math.floor(0.25 * headDim / 2), THETA: isSliding ? "10000.0" : "1000000.0", EPS: C.eps, WG: 128 }),
         attA: await K.pipeline("attsplit", { Q_HEADS: C.qHeads, KV_HEADS: C.kvHeads, HEAD_DIM: headDim, MAXSEQ, WINDOW: isSliding ? C.window : 0, CS: 64, CHUNKS: MAXSEQ / 64 }),
         attB: await K.pipeline("attcomb", { Q_HEADS: C.qHeads, HEAD_DIM: headDim, WINDOW: isSliding ? C.window : 0, CS: 64, CHUNKS: MAXSEQ / 64, WG: 128 }),
       });
@@ -235,6 +235,13 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     l.pleMulSrq = await K.pipeline("plemulsrq", { N: C.pleDim, OFF: l.i * C.pleDim, WG: 64 });
     l.rmsaccMul = await K.pipeline("rmsacc", { DIM: C.hidden, EPS: C.eps, MUL: l.layerScalarVal.toPrecision(9), WG: 256 });
     l.kern = await attKerns(l.headDim, l.isSliding);
+  }
+  for (let i = 0; i + 1 < layers.length; i++) {
+    const nx = layers[i + 1];
+    layers[i].rmsaccNext = await K.pipeline("rmsaccsrq", {
+      DIM: C.hidden, NS: nx.isShared ? 1 : 3, EPS: C.eps,
+      MUL: layers[i].layerScalarVal.toPrecision(9), NORM2: 1, WG: 256 });
+    layers[i].next = nx;
   }
   L("pipelines built");
 
@@ -281,16 +288,14 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
       const qview = { buffer: A.qkv, offset: 0, size: l.qOut * 4 };
       const kview = { buffer: A.qkv, offset: l.qOut * 4, size: l.kvOut * 4 };
       const vview = { buffer: A.qkv, offset: (l.qOut + l.kvOut) * 4, size: l.kvOut * 4 };
-      // attention: fused norm+quant → grouped qkv matvec → fused head prep
-      run(l.isShared ? kern.rmssrq1 : kern.rmssrq3, [A.hidden, l.inNorm, l.qkvScales, A.xq3], 1);
+      // attention: layer 0's norm+quant runs here; later layers get it fused
+      // into the previous layer's boundary op (rmsaccNext)
+      if (l.i === 0 || AB_NOFUSE) run(l.isShared ? kern.rmssrq1 : kern.rmssrq3, [A.hidden, l.inNorm, l.qkvScales, A.xq3], 1);
       run(l.qkvMv, [A.xq3, l.qkv.wBuf, l.qkv.wsBuf, l.qkv.srqsBuf, A.qkv], wg2(Math.ceil(l.qkv.out / 2)));
-      run(kk.qprep, [l.qNorm, A.params, qview], C.qHeads);
-      if (!l.isShared) {
-        run(kk.kvprep, [kview, vview, l.kNorm, A.params, l.kCache, l.vCache], 2 * C.kvHeads);
-      }
+      run(kk.headprep, [A.qkv, l.qNorm, l.isShared ? l.qNorm : l.kNorm, A.params, cache.kCache, cache.vCache],
+          l.isShared ? C.qHeads : C.qHeads + 2 * C.kvHeads);
       run(kk.attA, [qview, cache.kCache, cache.vCache, A.params, A.attPartO, A.attPartME], [C.qHeads, MAXSEQ / 64]);
-      run(kk.attB, [A.attPartO, A.attPartME, A.params, A.attnOut], C.qHeads);
-      run(l.srqAttnOut, [A.attnOut, l.o.srqBuf, A.xq], wg((C.qHeads * l.headDim) / 4, 64));
+      run(kk.attB, [A.attPartO, A.attPartME, A.params, l.o.srqBuf, A.xq], C.qHeads);
       run(l.oMv, [A.xq, l.o.wBuf, l.o.wsBuf, l.o.srqBuf, A.tmp], Math.ceil(C.hidden / MV_R));
       // fused: residual add + pre-ffn norm + gate/up quant regions
       run(kern.rmsaccFfn, [A.tmp, l.postAttnNorm, A.hidden, l.preFfnNorm, l.gateUpScales, A.xq3], 1);
@@ -304,7 +309,12 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
       run(l.pleGateMv, [A.xq, l.pleGate.wBuf, l.pleGate.wsBuf, l.pleGate.srqBuf, A.pleGateOut], Math.ceil(C.pleDim / MV_R));
       run(l.pleMulSrq, [A.pleGateOut, A.pleInput, l.pleProj.srqBuf, A.xq], wg(C.pleDim / 4, 64));
       run(l.pleProjMv, [A.xq, l.pleProj.wBuf, l.pleProj.wsBuf, l.pleProj.srqBuf, A.tmp], Math.ceil(C.hidden / MV_R));
-      run(l.rmsaccMul, [A.tmp, l.postPleNorm, A.hidden], 1);
+      // layer boundary: residual+layer_scalar + NEXT layer's input norm+quant, fused
+      if (l.next && !AB_NOFUSE) {
+        run(l.rmsaccNext, [A.tmp, l.postPleNorm, A.hidden, l.next.inNorm, l.next.qkvScales, A.xq3], 1);
+      } else {
+        run(l.rmsaccMul, [A.tmp, l.postPleNorm, A.hidden], 1);
+      }
   }
 
   function encodeFinal(ctx) {
@@ -422,5 +432,5 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     return new Float32Array(await readback(device, A.hidden, C.hidden * 4));
   }
 
-  return { device, C, layers, model, A, kern, step, generate, argmaxLogits, argmaxFast, readHidden, encodeForward, stepBisect, profileStep };
+  return { device, C, layers, model, A, kern, step, generate, argmaxLogits, argmaxFast, readHidden, encodeForward, stepBisect, profileStep, encodePre, encodeLayerPub: encodeLayer, bindPub: bind };
 }

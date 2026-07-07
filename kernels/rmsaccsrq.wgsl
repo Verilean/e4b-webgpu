@@ -9,6 +9,8 @@
 @group(0) @binding(5) var<storage, read_write> xq: array<u32>;
 
 var<workgroup> red: array<f32, ${WG}>;
+var<workgroup> hs: array<f32, ${DIM}>;    // staged updated hidden (avoids relying
+                                          // on storage-visibility within the WG)
 
 fn reduceAdd(lid: u32, v: f32) -> f32 {
   red[lid] = v;
@@ -37,9 +39,10 @@ fn main(@builtin(local_invocation_id) lidv: vec3<u32>) {
   for (var i = lid; i < ${DIM}u; i = i + ${WG}u) {
     let h = (hidden[i] + t[i] * inv1 * w1[i]) * ${MUL};
     hidden[i] = h;
+    hs[i] = h;
     s2 = s2 + h * h;
   }
-  storageBarrier();                       // hidden[] writes visible WG-wide
+  workgroupBarrier();
   _ = w2[0];
   var inv2: f32 = 1.0;
   if (${NORM2}u == 1u) {
@@ -51,7 +54,7 @@ fn main(@builtin(local_invocation_id) lidv: vec3<u32>) {
     let j = (wi % words) * 4u;
     var packed: u32 = 0u;
     for (var k: u32 = 0u; k < 4u; k = k + 1u) {
-      var v = hidden[j + k] * inv2;
+      var v = hs[j + k] * inv2;
       if (${NORM2}u == 1u) { v = v * w2[j + k]; }
       let q = i32(clamp(round(v / sc), -128.0, 127.0));
       packed = packed | ((u32(q) & 0xFFu) << (k * 8u));

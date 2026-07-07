@@ -79,6 +79,56 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
       L("DONE");
       return;
     }
+    if (q.get("mode") === "xqdiff") {
+      // run layer0 with the fused boundary (rmsaccNext) vs explicit rmssrq3 for
+      // layer1's input quant; diff the xq3 buffers.
+      const { readback } = await import("./src/gpu.js");
+      const g = goldens.prompts[0];
+      const dev = eng.device, A = eng.A, kern = eng.kern, l0 = eng.layers[0], l1 = eng.layers[1];
+      // one full fused step for token 0 at pos 0 — but stop after layer 0:
+      dev.queue.writeBuffer(A.params, 0, new Uint32Array([0, 1, g.input_ids[0], 0]));
+      const seen = [];
+      {
+        const enc = dev.createCommandEncoder();
+        const pass = enc.beginComputePass();
+        const ctx = { run: (k, b, gr) => { seen.push(k.pipeline.label.slice(0, 60)); pass.setPipeline(k.pipeline); pass.setBindGroup(0, eng.bindPub(k, b)); pass.dispatchWorkgroups(...(Array.isArray(gr) ? gr : [gr])); } };
+        eng.encodePre(ctx);
+        eng.encodeLayerPub(ctx, l0);       // ends with rmsaccNext → xq3 for layer1
+        pass.end();
+        dev.queue.submit([enc.finish()]);
+      }
+      L(`last3 dispatches: ${seen.slice(-3).join(" | ")}`);
+      L(`l0.next defined: ${!!l0.next}, l0.rmsaccNext: ${!!l0.rmsaccNext}`);
+      const fused = new Uint32Array(await readback(dev, A.xq3, 3 * eng.C.hidden));
+      const hiddenAfter = new Float32Array(await readback(dev, A.hidden, eng.C.hidden * 4));
+      {
+        const enc = dev.createCommandEncoder();
+        const pass = enc.beginComputePass();
+        const ctx = { run: (k, b, gr) => { pass.setPipeline(k.pipeline); pass.setBindGroup(0, eng.bindPub(k, b)); pass.dispatchWorkgroups(...(Array.isArray(gr) ? gr : [gr])); } };
+        ctx.run(kern.rmssrq3, [A.hidden, l1.inNorm, l1.qkvScales, A.xq3], 1);
+        pass.end();
+        dev.queue.submit([enc.finish()]);
+      }
+      const explicit = new Uint32Array(await readback(dev, A.xq3, 3 * eng.C.hidden));
+      let nd = 0, firstIdx = -1;
+      for (let i = 0; i < fused.length; i++) if (fused[i] !== explicit[i]) { nd++; if (firstIdx < 0) firstIdx = i; }
+      L(`xqdiff: ${nd}/${fused.length} words differ, first at ${firstIdx}`);
+      if (firstIdx >= 0) L(`  fused=${fused[firstIdx].toString(16)} explicit=${explicit[firstIdx].toString(16)} region=${Math.floor(firstIdx / 640)}`);
+      L(`hidden[0..4]=${[...hiddenAfter.slice(0, 4)].map((x) => x.toFixed(5)).join(",")}`);
+      // JS recomputation of the expected quantization for elements 0..3
+      const w2v = new Float32Array(await readback(dev, l1.inNorm, 16));
+      const scv = new Float32Array(await readback(dev, l1.qkvScales, 12));
+      let ss = 0; for (const h of hiddenAfter) ss += h * h;
+      const inv2 = Math.pow(ss / hiddenAfter.length + 1e-6, -0.5);
+      const expQ = [0, 1, 2, 3].map((k) => Math.round(hiddenAfter[k] * inv2 * w2v[k] / scv[0]));
+      L(`inv2=${inv2.toFixed(5)} w2[0..3]=${[...w2v].map((x) => x.toFixed(4)).join(",")} sc=${[...scv.slice(0, 3)].map((x) => x.toFixed(4)).join(",")}`);
+      L(`expected q[0..3]=${expQ.join(",")}`);
+      const dec = (w) => [0, 1, 2, 3].map((k) => ((w >> (k * 8)) & 0xff) << 24 >> 24);
+      L(`fused    q[0..3]=${dec(fused[0]).join(",")}`);
+      L(`explicit q[0..3]=${dec(explicit[0]).join(",")}`);
+      L("DONE");
+      return;
+    }
     if (q.get("mode") === "bisect") {
       // per-layer hidden comparison vs goldens.layer_fingerprints (p0, last prompt position)
       const g = goldens.prompts[0];
