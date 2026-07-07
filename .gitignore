@@ -2,3 +2,9 @@ model/
 *.safetensors
 goldens/*.bin
 node_modules/
+venv/
+harness/venv/
+harness/run.log
+harness/result.json
+goldens/*.bin
+model/*.gguf

@@ -37,7 +37,7 @@ Extras per layer: `layer_scalar` BF16 [1]; `self_attn.k_cache_scale` /
 
 | tensor | dtype | shape | note |
 |---|---|---|---|
-| lm_head.weight | U8 | [262144, 640] | in=2560 → 640 = in/4 — **OPEN QUESTION: 2-bit? or a different packing** (§verify) |
+| lm_head.weight | U8 | [262144, 640] | in=2560 → 640 = in/4 — **RESOLVED: 2-bit** (config.quantization_config: `^lm_head$: num_bits=2`; 4 values/byte) |
 | lm_head.weight_scale | F32 | [262144, 1] | |
 | embed_tokens.embedding_quantized | U8 | [262144, 640] | same /4 packing as lm_head (tied?) |
 | embed_tokens.embedding_scale | F32 | [262144, 1] | per-row |
@@ -46,10 +46,11 @@ Extras per layer: `layer_scalar` BF16 [1]; `self_attn.k_cache_scale` /
 | per_layer_model_projection.weight | BF16 | [10752, 2560] | 55 MB, read per token |
 | norm.weight | BF16 | [2560] | final norm |
 
-**VERIFY in M2 (goldens/gen.py)**: the `/4` tensors' exact packing (2-bit vs
-4-bit-with-groups) and the int4 nibble order/zero-point — read HF transformers'
-Gemma-4-mobile modeling/dequant code while generating goldens; the goldens make any
-misreading immediately visible as a layer-0 mismatch.
+**RESOLVED via config.quantization_config.module_quant_configs**: lm_head,
+embed_tokens, embed_tokens_per_layer = **num_bits=2** (4 values/byte); layer linears
+= num_bits=4 (2/byte); PLE gate/proj stored I8. Remaining M2 verification: nibble/crumb
+ORDER and signed mapping (symmetric int4: -8..7? int2: -2..1) — confirmed against
+transformers' dequant code + layer-0 goldens.
 
 ## Per-token decode byte accounting (drives the BW floor in DEVPLAN)
 

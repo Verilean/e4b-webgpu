@@ -1,0 +1,6 @@
+Loading weights:   0%|          | 0/2876 [00:00<?, ?it/s]Loading weights:  55%|█████▍    | 1571/2876 [00:00<00:00, 15708.44it/s]Loading weights: 100%|██████████| 2876/2876 [00:00<00:00, 19088.34it/s]
+loaded: Gemma4ForConditionalGeneration
+[0] 'Write a short poem about the sea' -> 'A restless heart of sapphire blue,\nWhere endless tides forever flow,\nIt breathes a salt and ancient dew,\n'
+[1] 'The capital of France is' -> 'The capital of France is **Paris**.<turn|>'
+[2] 'Explain why the sky is blue in one sentence.' -> "The sky appears blue because of a phenomenon called Rayleigh scattering, where the Earth's atmosphere scatters shorter-wavelength blue"
+goldens.json written
