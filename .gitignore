@@ -8,3 +8,4 @@ harness/run.log
 harness/result.json
 goldens/*.bin
 model/*.gguf
+harness/serve.log
