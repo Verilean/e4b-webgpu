@@ -131,13 +131,13 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
       // repack row-major int2 rows (IN/4 bytes each) into 32-row tiles laid out
       // [vec4word j][row t] so subgroup reads are coalesced (see lmhead.wgsl)
       const raw = new Uint32Array((await st.fetch("lm_head.weight")).buf.slice(0));
-      const rows = C.vocab, vwords = C.hidden / 64;           // vec4<u32> per row
+      const rows = C.vocab, vwords = C.hidden / 64, T = 128;   // vec4<u32> per row
       const out = new Uint32Array(rows * vwords * 4);
       for (let r = 0; r < rows; r++) {
-        const tile = (r >> 5), t = r & 31;
+        const tile = Math.floor(r / T), t = r % T;
         for (let j = 0; j < vwords; j++)
           for (let h = 0; h < 4; h++)
-            out[(tile * vwords * 32 + j * 32 + t) * 4 + h] = raw[r * vwords * 4 + j * 4 + h];
+            out[(tile * vwords * T + j * T + t) * 4 + h] = raw[r * vwords * 4 + j * 4 + h];
       }
       return out;
     })()),
@@ -178,7 +178,7 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
 
   // ---- pipelines ----
   const MV_R = 2;
-  const mv = (bits, IN, OUT) => K.pipeline("matvec4", { BITS: bits, IN, OUT, SOFTCAP: "0.0" });
+  const mv = (bits, IN, OUT) => K.pipeline("matvec4", { BITS: bits, IN, OUT, SER: 1, SOFTCAP: "0.0" });
   const srqCache = new Map();
   const srq8 = async (N) => {
     if (!srqCache.has(N)) srqCache.set(N, await K.pipeline("srq8", { N, WG: 64 }));
@@ -194,7 +194,7 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     addMulPle: await K.pipeline("addmul", { N: PLE_TOTAL, WG: 256 }),
     gegluMul: await K.pipeline("geglumul", { N: C.inter, WG: 256 }),
     pleProjMv: await K.pipeline("matvec2f", { BITS: 32, IN: C.hidden, OUT: PLE_TOTAL, WG: 64, SOFTCAP: "0.0" }),
-    lmHead: await K.pipeline("lmhead", { IN: C.hidden, OUT: C.vocab, SOFTCAP: C.softcap.toFixed(1) }),
+    lmHead: await K.pipeline("lmhead", { IN: C.hidden, OUT: C.vocab, TILE: 128, SOFTCAP: C.softcap.toFixed(1) }),
     srqH: await (async () => K.pipeline("srq8", { N: C.hidden, WG: 64 }))().then(x=>x),
     argmax0: await K.pipeline("argmax2", { N: C.vocab, PARTS: 256, STAGE: 0, WG: 256 }),
     argmax1: await K.pipeline("argmax2", { N: C.vocab, PARTS: 256, STAGE: 1, WG: 256 }),
@@ -319,7 +319,7 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
   function encodeFinal(ctx) {
     const run = ctx.run;
     run(kern.rmsHidden, [A.hidden, model.finalNorm, A.normed], 1);
-    run(kern.lmHead, [A.normed, model.lmHeadQ, model.lmHeadS, A.logits], wg2(C.vocab / 32));
+    run(kern.lmHead, [A.normed, model.lmHeadQ, model.lmHeadS, A.logits], wg2(C.vocab / 128));
     run(kern.argmax0, [A.logits, A.amaxPart, A.amax], 256);
     run(kern.argmax1, [A.logits, A.amaxPart, A.amax], 1);
   }

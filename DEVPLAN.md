@@ -88,6 +88,45 @@ CPU oracle ✓, (b) cross-engine agreement with webml-E4B ✓, (c) layer-path ra
 Naive-engine speed: 65–120 ms/token (~15 tok/s) — the M4 starting point (8× to the
 webml-E4B stretch target of 8.1 ms).
 
+## M4 results (2026-07-07)
+
+**Final: 11.11 ms/token = 90.0 tok/s (cool box, n=64 pipelined decode; 198 GB/s
+effective on 2.20 GB/token).** Ladder: 65-120 (naive M3) → 20.8 (srq8 int8 pre-quant
++ cooperative matvec + GPU argmax) → 18.8 (vectorized loads, split-K attention) →
+15.5 (matvec4: 2-row-interleaved subgroup matvec — pure-kernel 484 GB/s = 89% of the
+M4 Max 546 peak) → 14.0 (fusions: rmssrq/rmsacc/geglusrq/plemulsrq + xq3 regions +
+grouped qkv/gate-up concat matvecs) → 13.2 (headprep, attention-epilogue SRQ,
+layer-boundary fusion) → 13.0 (1-dispatch attention, plegatemv, matvecgu2) →
+11.4 (GPU-feedback pipelined decode: feedtok + token ring, zero CPU sync in loop) →
+**11.11** (lm_head 64-row tiles, 251 GB/s).
+
+**vs targets: must-beat llama.cpp 102.4 tok/s — NOT reached (88%). Stretch
+webml-E4B 123.5 — not reached (73%).** Honest gaps, measured not guessed:
+
+1. **Serialized-dispatch cost model** (the load-bearing finding): a fenced dispatch
+   costs `bytes/streaming-rate + ~9-33 µs fixed ramp/drain`. Decode is a fully
+   linear dependency chain (~11 dispatches/layer × 42), so fences are ~40% of the
+   wall. webml's 8.1 ms fits the same model with ~316 ops — op count is the lever,
+   exactly as the hesper report's fat-kernel prescription said.
+2. **int4 matvec streams at ~335 GB/s vs 484 for f32** — the int8-activation
+   second load stream (2× weight bytes in the LSU) + unpack ALU. R2-interleave is
+   the local optimum: R4/serial-rows/shared-staging all measured WORSE (register
+   spill / no LSU relief). llama.cpp's native-Metal simdgroup kernels do ~400+.
+3. Rejected with data: matvecgu v1 (8 accs → spill, 92 GB/s), SER=2 serial rows
+   (+8%), shared xq staging (+3%), R4 accumulator array (273 GB/s), dual xq
+   streams in matvecg (−25%, load-CSE pathology — hesper class).
+
+Remaining levers (unexploited): f16 per_layer_model_projection (−0.12 ms),
+attention V-loop parallelism at long seq, int4 unpack ALU reduction, batch-2
+streams (fence overlap — but breaks single-stream comparability).
+
+**Correctness discipline held**: every step re-gated (p1 token-exact incl. EOS;
+p0/p2 near-tie SRQ-grid flips only, texts coherent and semantically equal —
+p0 "A restless heart of endless blue…", p2 correct Rayleigh). Layer-bisect +
+xqdiff differential mode caught 2 real bugs mid-M4: a lost-edit (boundary fusion
+never dispatched → stale xq3) and a pleProj 10× under-dispatch that the token
+gate ALONE had masked — gate condition (c) ratios are not optional.
+
 ## Author-time log
 
 | span | wall clock | what |
@@ -97,6 +136,7 @@ webml-E4B stretch target of 8.1 ms).
 | ~10:35 | +30 min | M1 done: llama.cpp 102.4, webml-swap 123.5 (P1 held, P2 missed) |
 | ~11:10 | +35 min | M2 done: harness + goldens + dequant/arch spec verified first-hand |
 | ~12:00 | +50 min | M3 done: scratch engine token-exact on first run (p1); SRQ-grid finding; ~15 tok/s naive |
+| 11:27 (next session) | ~3.2 h agent wall | M4 done: 15→90 tok/s (6×); must-beat NOT reached (88% of llama.cpp); cost model + rejected-experiments log above |
 
 ## Decision log
 

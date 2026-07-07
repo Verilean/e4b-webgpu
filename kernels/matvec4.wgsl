@@ -47,24 +47,30 @@ fn finish(total: f32, o: u32) {
 
 @compute @workgroup_size(32)
 fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
-  let o0 = (wid.y * 32768u + wid.x) * 2u;   // R is fixed at 2: explicit registers
-  if (o0 >= ${OUT}u) { return; }
+  // SER serial passes of the proven 2-row interleave (2*SER rows per WG):
+  // longer per-thread streams pipeline better than many short WGs.
+  let og = (wid.y * 32768u + wid.x) * (2u * ${SER}u);
+  if (og >= ${OUT}u) { return; }
   let rowW = select(${IN}u / 16u, ${IN}u / 32u, ${BITS}u == 4u);
-  let b0 = o0 * rowW;
-  let b1 = b0 + rowW;
-  var acc0: f32 = 0.0;
-  var acc1: f32 = 0.0;
-  for (var jw = lid.x; jw < rowW; jw = jw + 32u) {
-    if (${BITS}u == 4u) {
-      acc0 = acc0 + q4dot(w[b0 + jw], jw);
-      acc1 = acc1 + q4dot(w[b1 + jw], jw);
-    } else {
-      acc0 = acc0 + q8dot(w[b0 + jw], jw);
-      acc1 = acc1 + q8dot(w[b1 + jw], jw);
+  for (var rr: u32 = 0u; rr < ${SER}u; rr = rr + 1u) {
+    let o0 = og + rr * 2u;
+    if (o0 >= ${OUT}u) { continue; }
+    let b0 = o0 * rowW;
+    let b1 = b0 + rowW;
+    var acc0: f32 = 0.0;
+    var acc1: f32 = 0.0;
+    for (var jw = lid.x; jw < rowW; jw = jw + 32u) {
+      if (${BITS}u == 4u) {
+        acc0 = acc0 + q4dot(w[b0 + jw], jw);
+        acc1 = acc1 + q4dot(w[b1 + jw], jw);
+      } else {
+        acc0 = acc0 + q8dot(w[b0 + jw], jw);
+        acc1 = acc1 + q8dot(w[b1 + jw], jw);
+      }
     }
+    let t0 = subgroupAdd(acc0);
+    let t1 = subgroupAdd(acc1);
+    if (lid.x == 0u) { finish(t0, o0); }
+    if (lid.x == 1u && o0 + 1u < ${OUT}u) { finish(t1, o0 + 1u); }
   }
-  let t0 = subgroupAdd(acc0);
-  let t1 = subgroupAdd(acc1);
-  if (lid.x == 0u) { finish(t0, o0); }
-  if (lid.x == 1u && o0 + 1u < ${OUT}u) { finish(t1, o0 + 1u); }
 }

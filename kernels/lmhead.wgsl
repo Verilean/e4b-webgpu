@@ -12,20 +12,20 @@ enable subgroups;
 
 var<workgroup> xs: array<vec4<f32>, ${IN} / 4>;
 
-@compute @workgroup_size(32)
+@compute @workgroup_size(${TILE})
 fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
-  if ((wid.y * 32768u + wid.x) * 32u >= ${OUT}u) { return; }   // excess-grid guard
+  if ((wid.y * 32768u + wid.x) * ${TILE}u >= ${OUT}u) { return; }   // excess-grid guard
   let nx = ${IN}u / 4u;
-  for (var i = lid.x; i < nx; i = i + 32u) { xs[i] = x[i]; }
+  for (var i = lid.x; i < nx; i = i + ${TILE}u) { xs[i] = x[i]; }
   workgroupBarrier();
 
   let tile = wid.y * 32768u + wid.x;
-  let o = tile * 32u + lid.x;
+  let o = tile * ${TILE}u + lid.x;
   let vwords = ${IN}u / 64u;                 // vec4<u32> words per row (64 int2 each)
-  let base = tile * (vwords * 32u);
+  let base = tile * (vwords * ${TILE}u);
   var acc: f32 = 0.0;
   for (var j: u32 = 0u; j < vwords; j = j + 1u) {
-    let wv = w[base + j * 32u + lid.x];      // coalesced across the subgroup
+    let wv = w[base + j * ${TILE}u + lid.x]; // coalesced across the WG
     for (var h: u32 = 0u; h < 4u; h = h + 1u) {
       let ww = wv[h];
       let xb = j * 16u + h * 4u;             // 16 int2 per u32 = 4 vec4f of x
