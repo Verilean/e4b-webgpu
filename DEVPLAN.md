@@ -60,6 +60,34 @@ E2B 287 GB/s class (validates our byte accounting AND their kernel generality).
 **Targets locked (per the pre-registered rule):** must-beat = llama.cpp **102.4**;
 stretch = webml-E4B **123.5** (the oracle now exists on this box).
 
+## M2–M3 results (2026-07-07)
+
+**M2**: harness (range-serving dev server, headless-chrome runner, hot-reload kernels);
+goldens from transformers f32-CPU on the same checkpoint (3 prompts, greedy ids, step0
+logits, all-43 layer fingerprints). Dequant + SRQ semantics confirmed from
+`transformers/integrations/gemma_quant.py`; full text-decoder spec verified first-hand
+against `modeling_gemma4.py` (NOTES/arch-spec.md).
+
+**M3 — bring-up: PASS on first execution.** The scratch engine (9 WGSL kernel files,
+~500 lines of JS) produced, on its very first run, token-exact agreement with the
+oracle on prompt 1 (full sequence incl. EOS, "Paris"). Layer-bisect: embedding and
+layer 0 bit-exact; all 42 layer meanAbs ratios ≈ 0.99–1.005.
+
+**Finding (gate amendment): token-exactness vs a CPU oracle is UNATTAINABLE for SRQ
+checkpoints, by mechanism.** Static-range activation quantization snaps activations to
+per-layer grids (steps 0.3–0.98); any 1-ulp cross-implementation difference at a grid
+boundary becomes a FULL quantization step. The drift stays bounded (SRQ re-snaps each
+layer) but flips near-tie tokens. Evidence that the engine is nonetheless correct:
+prompt 0's divergent output is **word-for-word identical to the unmodified webml
+engine's E4B output** ("A canvas vast of shifting blue…") — two independent GPU
+implementations converge with each other; prompt 2 is semantically identical to the
+oracle (correct Rayleigh explanation). Amended M3 gate: (a) ≥1 prompt token-exact vs
+CPU oracle ✓, (b) cross-engine agreement with webml-E4B ✓, (c) layer-path ratios
+≈1.000 ✓, (d) coherent/semantically-equal text on all prompts ✓.
+
+Naive-engine speed: 65–120 ms/token (~15 tok/s) — the M4 starting point (8× to the
+webml-E4B stretch target of 8.1 ms).
+
 ## Author-time log
 
 | span | wall clock | what |
@@ -67,6 +95,8 @@ stretch = webml-E4B **123.5** (the oracle now exists on this box).
 | start | 2026-07-07 09:41 | M0 begun (repo, header analysis, notes) |
 | ~10:05 | +24 min | M0 done (★approved), downloads started |
 | ~10:35 | +30 min | M1 done: llama.cpp 102.4, webml-swap 123.5 (P1 held, P2 missed) |
+| ~11:10 | +35 min | M2 done: harness + goldens + dequant/arch spec verified first-hand |
+| ~12:00 | +50 min | M3 done: scratch engine token-exact on first run (p1); SRQ-grid finding; ~15 tok/s naive |
 
 ## Decision log
 

@@ -1,0 +1,77 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>e4b bring-up gate</title></head><body>
+<script type="module">
+// M3 golden gate: greedy token match vs the transformers f32-CPU oracle (goldens/).
+import { loadEngine } from "./src/engine.js";
+const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => {});
+(async () => {
+  try {
+    const goldens = await (await fetch("goldens/goldens.json")).json();
+    const t0 = performance.now();
+    const eng = await loadEngine();
+    L(`engine loaded in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+    const q = new URLSearchParams(location.search);
+    const nNew = parseInt(q.get("n") ?? "8");
+    if (q.get("mode") === "logits") {
+      // prompt-0 prefill → compare full logits vs the oracle (rounding vs real-bug discriminator)
+      const g = goldens.prompts[0];
+      let pos = 0;
+      for (const t of g.input_ids) await eng.step(t, pos++);
+      const { logits } = await eng.argmaxLogits();
+      const ref = new Float32Array(await (await fetch("goldens/" + g.step0_logits_file)).arrayBuffer());
+      let maxd = 0, maxi = 0;
+      for (let i = 0; i < ref.length; i++) { const d = Math.abs(logits[i] - ref[i]); if (d > maxd) { maxd = d; maxi = i; } }
+      const top = [...ref.keys()].sort((a, b) => ref[b] - ref[a]).slice(0, 5);
+      L(`logits maxAbsDiff=${maxd.toFixed(5)} at ${maxi}; oracle top5=` +
+        top.map((i) => `${i}:${ref[i].toFixed(3)}/${logits[i].toFixed(3)}`).join(" "));
+      L(`argmax ours=${logits.indexOf(Math.max(...logits))} oracle=${g.step0_argmax}`);
+      L("DONE");
+      return;
+    }
+    if (q.get("mode") === "bisect") {
+      // per-layer hidden comparison vs goldens.layer_fingerprints (p0, last prompt position)
+      const g = goldens.prompts[0];
+      let pos = 0;
+      for (const t of g.input_ids.slice(0, -1)) await eng.step(t, pos++);
+      const fps = g.layer_fingerprints;   // [0]=embedding output, [i+1]=after layer i
+      let fi = 0;
+      await eng.stepBisect(g.input_ids[g.input_ids.length - 1], pos, async (stage, h) => {
+        const fp = fps[fi++];
+        if (!fp) return;
+        let ma = 0;
+        for (let j = 0; j < h.length; j++) ma += Math.abs(h[j]);
+        ma /= h.length;
+        const wantMa = fp.meanAbs;
+        const d8 = fp.first8.map((v, j) => Math.abs(h[j] - v));
+        const worst = Math.max(...d8);
+        L(`${stage}: meanAbs=${ma.toFixed(4)} want=${wantMa.toFixed(4)} ratio=${(ma / wantMa).toFixed(4)} first8MaxDiff=${worst.toFixed(5)}`);
+      });
+      L("DONE");
+      return;
+    }
+    const only = q.get("p");   // limit to one prompt index
+    let allPass = true;
+    for (let pi = 0; pi < goldens.prompts.length; pi++) {
+      if (only !== null && only !== undefined && only !== "" && pi !== parseInt(only)) continue;
+      const g = goldens.prompts[pi];
+      const want = g.generated_ids.slice(0, nNew);
+      const tGen = performance.now();
+      const got = await eng.generate(g.input_ids, want.length, null);
+      const ms = performance.now() - tGen;
+      const match = got.every((t, i) => t === want[i]);
+      allPass = allPass && match;
+      L(`[p${pi}] ${match ? "MATCH" : "MISMATCH"} got=${JSON.stringify(got)} want=${JSON.stringify(want)} ` +
+        `(${(ms / (g.input_ids.length + got.length)).toFixed(0)} ms/token)`);
+      if (!match) {
+        const k = got.findIndex((t, i) => t !== want[i]);
+        L(`[p${pi}] first divergence at generated index ${k}`);
+      }
+    }
+    L(allPass ? "GATE PASS" : "GATE FAIL");
+    L("DONE");
+  } catch (e) {
+    L("ERROR: " + (e && (e.stack || e.message) || e));
+  }
+})();
+</script>
+</body></html>
