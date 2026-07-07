@@ -59,3 +59,20 @@ transformers' dequant code + layer-0 goldens.
 - lm_head 167.8 + 1.0 MB; per_layer_model_projection 55.1 MB
 - embed row + PLE row: ~3 KB (indexed)
 - **total ≈ 2.20 GB/token**
+
+## Definitive dequant semantics (from transformers/integrations/gemma_quant.py, Apache-2.0)
+
+- **int4 unpack** (U8 → 2 values): `low = (b & 0x0F) - 8`, `high = (b >> 4) - 8`,
+  order **[low, high]** per byte → signed [-8, 7].
+- **int2 unpack** (U8 → 4 values): bits [1:0],[3:2],[5:4],[7:6] (LSB first),
+  each `v - 2` → signed [-2, 1].
+- **Linear**: `y = SRQ_out( (SRQ_in(x)) @ (unpack(W) * weight_scale)^T )`, where
+  `SRQ(x, s, bits=8) = s==0 ? x : clamp(round(x/s), -128, 127) * s`
+  (per-tensor STATIC scale from the checkpoint; scale 0 ⇒ no-op).
+  weight_scale is per-OUTPUT-channel `[out, 1]`, fp32 math in the reference.
+- **Embedding**: `row = unpack(q[idx]) * repeat_interleave(scale[idx], block)` then
+  `× scalar_embed_scale` (architectural). Block size = dim / n_scale_cols:
+  embed_tokens scale [V,1] → one block; **embed_tokens_per_layer scale [V,42] →
+  42 blocks of 256 (a scale per layer per row)**.
+- KV cache: `k_cache_scale` / `v_cache_scale` F32 scalars per layer — int8 cache
+  regime (exact application point: see NOTES/arch-spec.md).
