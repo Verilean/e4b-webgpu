@@ -170,6 +170,7 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     xq: alloc(device, Math.ceil(C.inter / 4) * 4),         // packed int8 activation (max IN)
     xq3: alloc(device, 3 * C.hidden),                       // 3 offset regions (qkv / gate+up)
     amax: alloc(device, 16),
+    tokRing: alloc(device, 1024 * 8),
     amaxPart: alloc(device, 256 * 8),
     srqOff: upload(device, new Float32Array([0, 0]), GPUBufferUsage.UNIFORM),
     combineScale: upload(device, new Float32Array([Math.SQRT1_2])),
@@ -204,6 +205,7 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     gegluSrq: await K.pipeline("geglusrq", { N: C.inter, WG: 256 }),
     rmsaccFfn: await K.pipeline("rmsaccsrq", { DIM: C.hidden, NS: 2, EPS: C.eps, MUL: "1.0", NORM2: 1, WG: 256 }),
     rmsaccPle: await K.pipeline("rmsaccsrq", { DIM: C.hidden, NS: 1, EPS: C.eps, MUL: "1.0", NORM2: 0, WG: 256 }),
+    feedTok: await K.pipeline("feedtok", {}),
   };
   const attKernCache = new Map();
   async function attKerns(headDim, isSliding) {
@@ -385,6 +387,50 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     return u[0];
   }
 
+  // decode WITHOUT per-token CPU sync: feedTok copies the previous argmax into
+  // params.token on the GPU; each step's argmax is copied into a ring buffer
+  // and read back in chunks. CPU encodes ahead while the GPU executes.
+  function decodeChunk(startPos, count, ringBase) {
+    for (let i = 0; i < count; i++) {
+      const pos = startPos + i;
+      device.queue.writeBuffer(A.params, 0, new Uint32Array([pos, pos + 1]));
+      const enc = device.createCommandEncoder();
+      const pass = enc.beginComputePass();
+      const run = mkRun(pass);
+      run(kern.feedTok, [A.amax, A.params], 1);
+      encodeForward({ run });
+      pass.end();
+      enc.copyBufferToBuffer(A.amax, 0, A.tokRing, (ringBase + i) * 8, 8);
+      device.queue.submit([enc.finish()]);
+    }
+  }
+
+  // greedy decode, GPU-side feedback. Returns generated ids (incl. EOS if hit).
+  async function generateFast(inputIds, maxNew, eosIds = new Set([106, 1])) {
+    let pos = 0;
+    for (const t of inputIds) await step(t, pos++);
+    const g0 = await argmaxFast();                 // first generated token
+    const out = [g0];
+    if (eosIds.has(g0)) return out;
+    const CHUNK = 8;
+    let done = 1;                                  // generated tokens so far
+    while (done < maxNew) {
+      const n = Math.min(CHUNK, maxNew - done);
+      decodeChunk(pos, n, done - 1);               // ring[k] = token g_{k+1}
+      pos += n;
+      const ring = new Uint32Array(await readback(device, A.tokRing, (done - 1 + n) * 8));
+      let stop = false;
+      for (let k = done - 1; k < done - 1 + n; k++) {
+        const t = ring[k * 2];
+        out.push(t);
+        if (eosIds.has(t)) { stop = true; break; }
+      }
+      done += n;
+      if (stop) break;
+    }
+    return out.slice(0, maxNew);
+  }
+
   async function generate(inputIds, maxNew, onToken = null) {
     let pos = 0;
     for (const t of inputIds) await step(t, pos++);
@@ -429,5 +475,5 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
     return new Float32Array(await readback(device, A.hidden, C.hidden * 4));
   }
 
-  return { device, C, layers, model, A, kern, step, generate, argmaxLogits, argmaxFast, readHidden, encodeForward, stepBisect, profileStep, encodePre, encodeLayerPub: encodeLayer, bindPub: bind };
+  return { device, C, layers, model, A, kern, step, generate, generateFast, decodeChunk, argmaxLogits, argmaxFast, readHidden, encodeForward, stepBisect, profileStep, encodePre, encodeLayerPub: encodeLayer, bindPub: bind };
 }
