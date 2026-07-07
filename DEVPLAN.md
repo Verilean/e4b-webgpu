@@ -47,11 +47,26 @@ per_layer_model_projection 55 MB; the 705 MB PLE table is row-indexed, towers un
 **Fallback (user decision, recorded):** if the scratch path stalls, switch to the
 swap pattern (webml unmodified + E4B repo id) and conclude as a measurement study.
 
+## M1 results (2026-07-07, cool box, serial runs)
+
+| baseline | result | vs prediction |
+|---|---|---|
+| llama.cpp E4B QAT q4_0 (llama-bench tg64, r=3) | **102.4 ± 0.3 tok/s** (9.76 ms/token) | **P2 MISSED** (predicted 60–85 — llama is faster than byte-scaling suggested; E4B per-token GGUF bytes likely below the naive estimate, note for M4 analysis) |
+| webml UNMODIFIED + E4B repo id (headless Chrome, 64 tok, steady median) | **123.5 tok/s** (8.10 ms/token), coherent poem, load 95.5 s incl. 3.4 GB download | **P1 HELD** (the "runs at 100–140" branch). Their engine is config-driven enough to run a 2× model from a multimodal checkpoint UNMODIFIED |
+
+Effective BW of webml-E4B: 2.20 GB / 8.10 ms ≈ **272 GB/s** — consistent with their
+E2B 287 GB/s class (validates our byte accounting AND their kernel generality).
+
+**Targets locked (per the pre-registered rule):** must-beat = llama.cpp **102.4**;
+stretch = webml-E4B **123.5** (the oracle now exists on this box).
+
 ## Author-time log
 
 | span | wall clock | what |
 |---|---|---|
 | start | 2026-07-07 09:41 | M0 begun (repo, header analysis, notes) |
+| ~10:05 | +24 min | M0 done (★approved), downloads started |
+| ~10:35 | +30 min | M1 done: llama.cpp 102.4, webml-swap 123.5 (P1 held, P2 missed) |
 
 ## Decision log
 
