@@ -1,3 +1,4 @@
+enable subgroups;
 // Fused: hidden = (hidden + rms(t)*w1) * MUL; then quantize rms(hidden)*w2
 // into NS int8 regions (next block's matvec inputs). One WG, two reductions.
 // Params: DIM, NS, EPS, MUL, NORM2 (0: quantize raw hidden, no w2), WG
@@ -11,21 +12,19 @@
 @group(0) @binding(7) var<storage, read_write> sumI: array<i32>;
 
 var<workgroup> red: array<f32, ${WG}>;
+var<workgroup> sgred: array<f32, 8>;
 var<workgroup> hs: array<f32, ${DIM}>;    // staged updated hidden (avoids relying
                                           // on storage-visibility within the WG)
 
+// two-level subgroup reduction: 2 barriers instead of 2*log2(WG)
 fn reduceAdd(lid: u32, v: f32) -> f32 {
-  red[lid] = v;
+  let s1 = subgroupAdd(v);
+  if ((lid & 31u) == 0u) { sgred[lid / 32u] = s1; }
   workgroupBarrier();
-  var stride = ${WG}u / 2u;
-  while (stride > 0u) {
-    if (lid < stride) { red[lid] = red[lid] + red[lid + stride]; }
-    workgroupBarrier();
-    stride = stride / 2u;
-  }
-  let r = red[0];
+  var total: f32 = 0.0;
+  for (var i: u32 = 0u; i < ${WG}u / 32u; i = i + 1u) { total = total + sgred[i]; }
   workgroupBarrier();
-  return r;
+  return total;
 }
 
 @compute @workgroup_size(${WG})

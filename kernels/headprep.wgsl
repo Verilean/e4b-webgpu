@@ -1,3 +1,4 @@
+enable subgroups;
 // Fused head prep, one dispatch: WGs [0,QH) q-heads (weighted RMS + RoPE in
 // place on the concat qkv buffer), [QH, QH+KVH) k-heads (weighted RMS + RoPE +
 // kcache write), [QH+KVH, QH+2*KVH) v-heads (scale-less RMS + vcache write).
@@ -11,7 +12,7 @@
 @group(0) @binding(5) var<storage, read_write> vcache: array<f32>;
 @group(0) @binding(6) var<storage, read_write> sumI: array<i32>;
 
-var<workgroup> red: array<f32, ${WG}>;
+var<workgroup> sg8: array<f32, 8>;
 
 @compute @workgroup_size(${WG})
 fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
@@ -22,15 +23,12 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
     let v = qkv[base + d];
     s = s + v * v;
   }
-  red[lid.x] = s;
+  let s1 = subgroupAdd(s);
+  if ((lid.x & 31u) == 0u) { sg8[lid.x / 32u] = s1; }
   workgroupBarrier();
-  var stride = ${WG}u / 2u;
-  while (stride > 0u) {
-    if (lid.x < stride) { red[lid.x] = red[lid.x] + red[lid.x + stride]; }
-    workgroupBarrier();
-    stride = stride / 2u;
-  }
-  let inv = pow(red[0] / f32(${HEAD_DIM}u) + ${EPS}, -0.5);
+  var tot: f32 = 0.0;
+  for (var i: u32 = 0u; i < ${WG}u / 32u; i = i + 1u) { tot = tot + sg8[i]; }
+  let inv = pow(tot / f32(${HEAD_DIM}u) + ${EPS}, -0.5);
   let half = ${HEAD_DIM}u / 2u;
   let pos = params[0];
   let fp = f32(pos);

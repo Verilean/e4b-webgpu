@@ -1,3 +1,4 @@
+enable subgroups;
 // Fused RMSNorm + SRQ int8 pre-quantization for NS downstream linears with
 // distinct input scales. One WG. Writes NS regions of DIM/4 packed words.
 // xq[s][i] = clamp(round( x[i]*inv*weight[i] / scales[s] ), -128, 127)
@@ -8,7 +9,7 @@
 @group(0) @binding(3) var<storage, read_write> xq: array<u32>;
 @group(0) @binding(4) var<storage, read_write> xsum: array<f32>;   // [NS] Σ int8 acts
 
-var<workgroup> partial: array<f32, ${WG}>;
+var<workgroup> sg8: array<f32, 8>;
 
 @compute @workgroup_size(${WG})
 fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
@@ -17,15 +18,12 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
     let v = x[i];
     s = s + v * v;
   }
-  partial[lid.x] = s;
+  let s1 = subgroupAdd(s);
+  if ((lid.x & 31u) == 0u) { sg8[lid.x / 32u] = s1; }
   workgroupBarrier();
-  var stride = ${WG}u / 2u;
-  while (stride > 0u) {
-    if (lid.x < stride) { partial[lid.x] = partial[lid.x] + partial[lid.x + stride]; }
-    workgroupBarrier();
-    stride = stride / 2u;
-  }
-  let inv = pow(partial[0] / f32(${DIM}u) + ${EPS}, -0.5);
+  var tot: f32 = 0.0;
+  for (var i: u32 = 0u; i < ${WG}u / 32u; i = i + 1u) { tot = tot + sg8[i]; }
+  let inv = pow(tot / f32(${DIM}u) + ${EPS}, -0.5);
   let words = ${DIM}u / 4u;
   var rsum: array<f32, ${NS}>;
   for (var r: u32 = 0u; r < ${NS}u; r = r + 1u) { rsum[r] = 0.0; }
@@ -45,15 +43,14 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
     xq[wi] = packed;
   }
   for (var r: u32 = 0u; r < ${NS}u; r = r + 1u) {
+    let r1 = subgroupAdd(rsum[r]);
     workgroupBarrier();
-    partial[lid.x] = rsum[r];
+    if ((lid.x & 31u) == 0u) { sg8[lid.x / 32u] = r1; }
     workgroupBarrier();
-    var st = ${WG}u / 2u;
-    while (st > 0u) {
-      if (lid.x < st) { partial[lid.x] = partial[lid.x] + partial[lid.x + st]; }
-      workgroupBarrier();
-      st = st / 2u;
+    if (lid.x == 0u) {
+      var t2: f32 = 0.0;
+      for (var i: u32 = 0u; i < ${WG}u / 32u; i = i + 1u) { t2 = t2 + sg8[i]; }
+      xsum[r] = t2;
     }
-    if (lid.x == 0u) { xsum[r] = partial[0]; }
   }
 }

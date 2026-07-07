@@ -1,3 +1,4 @@
+enable subgroups;
 // Single-dispatch decode attention: grid (Q_HEADS, DT dim-tiles). Each WG
 // recomputes its head's scores (redundant ×DT — cheap vs a second fenced
 // dispatch) then accumulates V for its HEAD_DIM/DT dims. Epilogue writes the
@@ -13,6 +14,9 @@
 
 var<workgroup> probs: array<f32, ${MAXSEQ}>;
 var<workgroup> red: array<f32, ${WG}>;
+var<workgroup> sgm: array<f32, 8>;
+var<workgroup> sgs: array<f32, 8>;
+var<workgroup> vpart: array<vec4<f32>, ${WG}>;   // V-phase t-partition partials
 
 @compute @workgroup_size(${WG})
 fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
@@ -35,31 +39,22 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
     probs[t] = s;
     m = max(m, s);
   }
-  red[lid.x] = m;
+  let m1 = subgroupMax(m);
+  if ((lid.x & 31u) == 0u) { sgm[lid.x / 32u] = m1; }
   workgroupBarrier();
-  var stride = ${WG}u / 2u;
-  while (stride > 0u) {
-    if (lid.x < stride) { red[lid.x] = max(red[lid.x], red[lid.x + stride]); }
-    workgroupBarrier();
-    stride = stride / 2u;
-  }
-  let mx = red[0];
-  workgroupBarrier();
+  var mx: f32 = -3.0e38;
+  for (var i: u32 = 0u; i < ${WG}u / 32u; i = i + 1u) { mx = max(mx, sgm[i]); }
   var sm: f32 = 0.0;
   for (var t = start + lid.x; t < len; t = t + ${WG}u) {
     let e = exp(probs[t] - mx);
     probs[t] = e;
     sm = sm + e;
   }
-  red[lid.x] = sm;
+  let s1 = subgroupAdd(sm);
+  if ((lid.x & 31u) == 0u) { sgs[lid.x / 32u] = s1; }
   workgroupBarrier();
-  stride = ${WG}u / 2u;
-  while (stride > 0u) {
-    if (lid.x < stride) { red[lid.x] = red[lid.x] + red[lid.x + stride]; }
-    workgroupBarrier();
-    stride = stride / 2u;
-  }
-  let denom = red[0];
+  var denom: f32 = 0.0;
+  for (var i: u32 = 0u; i < ${WG}u / 32u; i = i + 1u) { denom = denom + sgs[i]; }
 
   // V for my dim tile; quantized o-proj input epilogue
   let tw = hd4 / ${DT}u;                       // vec4-dims per tile

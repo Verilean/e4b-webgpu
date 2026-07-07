@@ -221,7 +221,7 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
         ropeK: await K.pipeline("rope", { HEADS: C.kvHeads, HEAD_DIM: headDim, ROPE_ANGLES: angles, THETA: theta, WG: 128 }),
         kvW: await K.pipeline("kvwrite", { N: C.kvHeads * headDim, WG: 128 }),
         headprep: await K.pipeline("headprep", { QH: C.qHeads, KVH: C.kvHeads, HEAD_DIM: headDim, ROPE_ANGLES: isSliding ? headDim / 2 : Math.floor(0.25 * headDim / 2), THETA: isSliding ? "10000.0" : "1000000.0", EPS: C.eps, WG: 128 }),
-        att1: await K.pipeline("attention1", { Q_HEADS: C.qHeads, KV_HEADS: C.kvHeads, HEAD_DIM: headDim, MAXSEQ, WINDOW: isSliding ? C.window : 0, DT: 4, WG: 64 }),
+        att1: await K.pipeline("attention1", { Q_HEADS: C.qHeads, KV_HEADS: C.kvHeads, HEAD_DIM: headDim, MAXSEQ, WINDOW: isSliding ? C.window : 0, DT: 1, WG: 256 }),
       });
     }
     return attKernCache.get(key);
@@ -298,7 +298,7 @@ export async function loadEngine(modelUrl = "model/model.safetensors", configUrl
       run(l.qkvMv, [A.xq3, l.qkv.wBuf, l.qkv.wsBuf, l.qkv.srqsBuf, A.qkv, A.xqSums], wg2(Math.ceil(l.qkv.out / 2)));
       run(kk.headprep, [A.qkv, l.qNorm, l.isShared ? l.qNorm : l.kNorm, A.params, cache.kCache, cache.vCache, A.xqSumI],
           l.isShared ? C.qHeads : C.qHeads + 2 * C.kvHeads);
-      run(kk.att1, [qview, cache.kCache, cache.vCache, A.params, l.o.srqBuf, A.xq, A.xqSumI], [C.qHeads, 4]);
+      run(kk.att1, [qview, cache.kCache, cache.vCache, A.params, l.o.srqBuf, A.xq, A.xqSumI], [C.qHeads, 1]);
       run(l.oMv, [A.xq, l.o.wBuf, l.o.wsBuf, l.o.srqBuf, A.tmp, A.xqSumI], Math.ceil(C.hidden / MV_R));
       // fused: residual add + pre-ffn norm + gate/up quant regions
       run(kern.rmsaccFfn, [A.tmp, l.postAttnNorm, A.hidden, l.preFfnNorm, l.gateUpScales, A.xq3, A.xqSums, A.xqSumI], 1);
