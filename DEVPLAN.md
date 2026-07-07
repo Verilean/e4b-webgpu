@@ -136,7 +136,7 @@ gate ALONE had masked — gate condition (c) ratios are not optional.
 | ~10:35 | +30 min | M1 done: llama.cpp 102.4, webml-swap 123.5 (P1 held, P2 missed) |
 | ~11:10 | +35 min | M2 done: harness + goldens + dequant/arch spec verified first-hand |
 | ~12:00 | +50 min | M3 done: scratch engine token-exact on first run (p1); SRQ-grid finding; ~15 tok/s naive |
-| 11:27 (next session) | ~3.2 h agent wall | M4 done: 15→90 tok/s (6×); must-beat NOT reached (88% of llama.cpp); cost model + rejected-experiments log above |
+| 11:27 | +70 min | M4 done: 15→90 tok/s (6×); must-beat NOT reached (88% of llama.cpp); cost model + rejected-experiments log above. **Total M0→M4 = 1h46 wall.** |
 
 ## Decision log
 
