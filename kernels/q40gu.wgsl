@@ -67,7 +67,8 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   // BATCH=1 (prefill, EXPERT=2 only): wid.z = token*(1+K)+slot; per-token rows.
   var bTok: u32 = 0u;
   var zz = wid.z;
-  if (${BATCH}u == 1u) { bTok = wid.z / (1u + ${K}u); zz = wid.z % (1u + ${K}u); }
+  if (${BATCH}u == 1u && ${EXPERT}u == 2u) { bTok = wid.z / (1u + ${K}u); zz = wid.z % (1u + ${K}u); }
+  else if (${BATCH}u == 1u) { bTok = wid.z; zz = 0u; }   // dense-only batch: z = token
   let dense = ${EXPERT}u == 0u || (${EXPERT}u == 2u && zz == 0u);
   let slot = select(zz - 1u, zz, ${EXPERT}u == 1u);   // expert slot index
   let xoff = bTok * (${IN}u / 4u);       // x and x2 share the IN(=hidden) row stride

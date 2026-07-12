@@ -709,3 +709,36 @@ requested when present; `?sgm=0` falls back to q40mm.
 
 Budget after P6a (M=64, 180 ms serialized): **MoE gate/up 98.2 + MoE down 41.1
 = 77%** — the un-amortized expert reads are now cleanly the whole story → P6b.
+
+## P6b result (2026-07-12): expert grouping — mixed verdict, honest miss on the byte model
+
+Implementation: `expgroup.wgsl` (one-WG counting sort of the M×K draws into
+MC=8-column per-expert chunk descriptors) + `q40gugrp.wgsl` (weights loaded
+once per chunk, reused across the chunk's entries; per-entry math identical to
+q40gu → bit-identical) + dense gate/up moved to a `q40sg` GEMM over the guCat
+concat with a `geglub` epilogue + `q40downgrp/wacc` (grouped down, judged
+separately).
+
+- **Grouped gate/up: ACCEPTED** — 96 → 70 ms (first cut was 96 ms = NO win
+  until sentinel columns were guarded to skip all work; the padding columns
+  were doing 3× wasted compute).
+- **Dense gate/up GEMM + geglu epilogue: ACCEPTED** — 26 → 9.6 + 3.9 ms.
+- **Grouped down: REJECTED with data** — 43.5 ms (WG=64) / 49.6 ms (WG=128) vs
+  41.3 ms per-token; reverted (kernel kept as documented reject).
+- Gates: **GATE PASS + GATE2 PASS** throughout.
+
+**Final M6 numbers (quiet-ish box, best-of-3):** prefill M=64 **2.35 ms/tok
+(3.4× vs tokenwise 7.99)** ≈ 425 tok/s; M=20 **3.47 ms/tok (2.31×)** — the
+3-prompt gate latency drops 160 → 69 ms.
+
+**P6 combined prediction (≤1.6 ms/tok) MISSED — and the miss falsified the
+byte model:** the "un-amortized expert bytes" story was wrong in an
+interesting way. The per-token MoE kernels were ALREADY cache-grouped — only
+~124 unique experts exist per layer (128×2.23 MB ≈ 285 MB working set, largely
+SLC-resident across a layer), so explicit grouping buys far less than the
+naive per-token byte count predicted (41 ms down ≈ 417 GB/s "effective" =
+mostly L2/SLC hits). What grouping actually bought was dispatch-shape savings
+(fewer, denser WGs). The remaining prefill floor (guGrp 70 + down 41 = 66%) is
+kernel-shape/latency-bound, not DRAM-bound; the next lever would be a
+chunk-shaped subgroup-matrix MoE GEMM (8M-tile), diminishing for this
+campaign.
