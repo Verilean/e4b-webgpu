@@ -171,6 +171,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   // ---- activation buffers ----
   const KEXP = C.topK;
   const bgCache = new Map();
+  const tokenPlans = [];
   const A = {
     params: alloc(device, 16),
     paramsRing: Array.from({ length: 32 }, () => alloc(device, 16)),
@@ -247,6 +248,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       l.rmsaccOne = await K.pipeline("rmsacc", { DIM: C.hidden, EPS: C.eps, MUL: "1.0", WG: 256 });
     }
     bgCache.clear();
+    tokenPlans.length = 0;
   }
   await rebuildPipelines(K);
   L("pipelines built");
@@ -372,10 +374,26 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       const enc = device.createCommandEncoder();
       for (let i = 0; i < n; i++) {
         const P = A.paramsRing[i];
+        // record once per ring slot, then replay a flat array — kills the
+        // per-dispatch JS (key building, closures); ~340 dispatches/token
+        let plan = tokenPlans[i];
+        if (!plan) {
+          plan = [];
+          const rec = (k, bufs, groups) => {
+            const g = Array.isArray(groups) ? groups : [groups];
+            plan.push([k.pipeline, bind(k, bufs), g[0], g[1] ?? 1, g[2] ?? 1]);
+          };
+          rec(kern.feedTok, [A.amax, P], 1);
+          encodeForward(rec, P);
+          tokenPlans[i] = plan;
+        }
         const pass = enc.beginComputePass();
-        const run = mkRun(pass);
-        run(kern.feedTok, [A.amax, P], 1);
-        encodeForward(run, P);
+        for (let e = 0; e < plan.length; e++) {
+          const p2 = plan[e];
+          pass.setPipeline(p2[0]);
+          pass.setBindGroup(0, p2[1]);
+          pass.dispatchWorkgroups(p2[2], p2[3], p2[4]);
+        }
         pass.end();
         enc.copyBufferToBuffer(A.amax, 0, A.tokRing, (ringBase + c + i) * 8, 8);
       }
