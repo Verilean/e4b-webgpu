@@ -830,3 +830,22 @@ hesper's Dawn install, same GGUF, same box.
 **30–70 tok/s** (below both Metal 112.5 and ours 95); pp512 **300–900 tok/s**
 (below Metal 1470 and ours 1010). If it fails to load/run, that itself is the
 finding (ours would be the only working WebGPU path for this model).
+
+## Result (2026-07-12): there IS no existing WebGPU gemma-4-26B-A4B — measured, not assumed
+
+Built llama.cpp (gemma4 fork 73d820a) with `GGML_WEBGPU=ON` against hesper's
+Dawn install and ran the SAME GGUF: **crashes during prompt processing** —
+Dawn validation error in `glu_geglu_f32_split`: "Writable storage buffer
+binding aliasing … overlapping ranges (offset 2624000, size 2880768) and
+(offset 2626816, …) in tensor_buf3". ggml's strided gate/up views of the fused
+gemma4 FFN tensor legitimately overlap in one buffer, which WebGPU's aliasing
+rules forbid — a structural port gap, not a perf gap. (Predictions moot;
+the fail-to-run branch of the pre-registration is the finding.)
+
+Survey of the rest: webml = E2B only (M1/P1), WebLLM/MLC = no gemma4
+(`Unknown model type: gemma4`), onnx-community = E2B/E4B exports only.
+
+**Conclusion: this engine is, as far as we can determine, the only working
+WebGPU implementation of gemma-4-26B-A4B.** The only meaningful performance
+references remain native: llama.cpp Metal (decode 112.5 → ours 84.4%; pp512
+1470 → ours 69%) and the webml E2B engine as a method/architecture reference.
