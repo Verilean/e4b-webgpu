@@ -152,8 +152,8 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       pes: await f32buf(p + "ffn_down_exps.scale"),
       guExps: await q40(p + "ffn_gate_up_exps.weight"),
       downExps: await q40(p + "ffn_down_exps.weight"),
-      kCache: alloc(device, MAXSEQ * kvHeads * headDim * 4),
-      vCache: alloc(device, MAXSEQ * kvHeads * headDim * 4),
+      kCache: alloc(device, MAXSEQ * kvHeads * headDim * 2),   // f16
+      vCache: alloc(device, MAXSEQ * kvHeads * headDim * 2),
     };
     if (!l.keqv) l.v = await q40(p + "attn_v.weight");
     l.qOut = l.q.dims[1];                                // rows

@@ -387,3 +387,17 @@ opposite regime). The remaining 87→112 gap lives in bandwidth shapes
 2. Speculative / multi-token decode (M=4–8), if ever.
 3. (Bonus, unrelated to coop-matrix): `shader-f16` enables an f16 KV cache —
    halves attention cache traffic at long context.
+
+## Campaign 2 — shader-f16 deployed: f16 KV cache (2026-07-08)
+
+Answering 「shader-f16 も使ってない?」— it wasn't (the f16 SCALES were already
+decoded via core `unpack2x16float`, no extension needed). Now deployed where it
+genuinely pays: **the KV caches are stored f16** (headprep writes f16,
+attention reads convert). GATE PASS — token-exactness vs llama.cpp SURVIVES,
+which makes sense: llama.cpp's own KV is f16, so this matches THEIR precision
+rather than degrading below it. Cache memory halved; attention cache traffic
+halved (at context 640 that is ~286→143 MB/token ≈ −0.5 ms; at bench length
+~100 it is inside the box-variance noise — the win grows with context).
+Remaining f16 candidates rejected for M=1 decode: f16 matvec arithmetic (ALU
+is not the wall; precision risk) and f16 activations (broadcast-cached, no
+traffic to save).
