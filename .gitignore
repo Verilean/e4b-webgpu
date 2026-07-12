@@ -9,3 +9,4 @@ harness/result.json
 goldens/*.bin
 model/*.gguf
 harness/serve.log
+model-a4b/

@@ -251,3 +251,24 @@ E4B** ⇒ at our proven 273 GB/s the physics ceiling is ~120 tok/s.
    produced by the norm kernels like Campaign 1's Σq.
 4. Same repo, same gate discipline; E4B gate must STAY green (regression check)
    behind a model switch.
+
+## Campaign 2 — M1 results (2026-07-08)
+
+**llama.cpp (fork w/ gemma4, build 73d820a, Metal): tg64 = 112.51 ± 0.45 tok/s
+(8.89 ms/token).** → must-beat = 112.5. **P2 (55–80) MISSED LOW AGAIN** — same
+bias direction as Campaign 1's P2: I keep underestimating llama.cpp's Metal MoE
+path (prior was anchored on hesper's DiffusionGemma mul_mat_id 27%-MFU data
+point; mainline gemma4 MoE is clearly better). Two-for-two: predictions about
+MY OWN side hold; predictions about the competitor's efficiency run low.
+
+Physics check: ~2.0–2.2 GB active/token ⇒ llama.cpp is at ~225–250 GB/s eff
+(consistent with their E4B number); our proven 273 GB/s eff ⇒ ~7.3–8.0 ms
+≈ **125–137 tok/s potential** → stretch target: ≥125 tok/s.
+
+**GGUF ground truth (inspected first-hand, gguf_inspect.py):** 658 tensors:
+Q4_0 ×265 (all matmuls incl. fused MoE 3D tensors: gate_up_exps [2816,1408,128],
+down_exps [704,2816,128] + per-expert F32 scale [128]), F32 ×392 (norms, router
+[2816,128] + router input scale [2816], rope_freqs[256], layer_output_scale),
+**Q6_K ×1 = token_embd (2816×262144, TIED lm_head — 484 MB/token, the single
+biggest read; needs a Q6_K kernel).** Full layers: attn_k only 1024 wide + NO
+attn_v (k_eq_v). data_start=15821792, align 32.

@@ -15,6 +15,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)
 LOG = os.path.join(ROOT, "harness", "run.log")
 
+PENDING = []          # command queue for the resident tab (A4B: 14.4GB stays on GPU)
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
         # never cache code: Chrome's module cache + same-second mtimes caused
@@ -31,12 +33,33 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path == "/result":
             with open(os.path.join(ROOT, "harness", "result.json"), "wb") as f:
                 f.write(body)
+        elif self.path == "/cmd":
+            PENDING.append(body.decode())
         else:
             with open(LOG, "ab") as f:
                 f.write(body + b"\n")
         self.send_response(200)
         self.send_header("Content-Length", "0")
         self.end_headers()
+
+    def do_GET(self):
+        if self.path.startswith("/cmd"):
+            # long-poll up to ~25s for a command
+            import time
+            for _ in range(100):
+                if PENDING:
+                    body = PENDING.pop(0).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                time.sleep(0.25)
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        return super().do_GET()
 
     def send_head(self):
         """SimpleHTTPRequestHandler with single-range support (bytes=a-b)."""
