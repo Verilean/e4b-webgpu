@@ -20,10 +20,14 @@ var<workgroup> p: array<f32, ${E}>;
 fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid3: vec3<u32>) {
   let lid = lid3.x;
   let e = wid.x;
+  // BATCH=1 (prefill): wid.y = token; per-token x row, scores block, ctr slot, topk block
+  let bTok = select(0u, wid.y, ${BATCH}u == 1u);
+  let sb = bTok * ${E}u;
+  let tb = bTok * ${K}u;
   let h4 = ${H}u / 4u;
   var acc: f32 = 0.0;
   for (var j = lid; j < h4; j = j + ${WG}u) {
-    acc = acc + dot(x[j], wr[e * h4 + j]);
+    acc = acc + dot(x[bTok * h4 + j], wr[e * h4 + j]);
   }
   let s1 = subgroupAdd(acc);
   if ((lid & 31u) == 0u) { sg2[lid / 32u] = s1; }
@@ -31,17 +35,17 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   if (lid == 0u) {
     var tot: f32 = 0.0;
     for (var i: u32 = 0u; i < ${WG}u / 32u; i = i + 1u) { tot = tot + sg2[i]; }
-    atomicStore(&scoresA[e], bitcast<u32>(tot));
-    // completion count; the last WG runs the epilogue
-    let done = atomicAdd(&ctr[0], 1u) + 1u;
+    atomicStore(&scoresA[sb + e], bitcast<u32>(tot));
+    // completion count; the last WG (per token) runs the epilogue
+    let done = atomicAdd(&ctr[bTok], 1u) + 1u;
     lastFlag = select(0u, 1u, done == ${E}u);
-    if (lastFlag == 1u) { atomicStore(&ctr[0], 0u); }   // reset for the next layer
+    if (lastFlag == 1u) { atomicStore(&ctr[bTok], 0u); }   // reset for the next layer
   }
   workgroupBarrier();
   // load + barrier UNCONDITIONALLY (Tint uniformity); non-last WGs load
   // garbage they never use. Metal storage atomics are device-coherent.
   for (var i = lid; i < ${E}u; i = i + ${WG}u) {
-    p[i] = bitcast<f32>(atomicLoad(&scoresA[i]));
+    p[i] = bitcast<f32>(atomicLoad(&scoresA[sb + i]));
   }
   workgroupBarrier();
   if (lastFlag == 1u) {
@@ -56,11 +60,11 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
         for (var i: u32 = 0u; i < ${E}u; i = i + 1u) {
           if (p[i] > bv) { bv = p[i]; bi = i; }
         }
-        topkIdx[k] = bi; topkW[k] = bv / sum; wsum = wsum + bv / sum;
+        topkIdx[tb + k] = bi; topkW[tb + k] = bv / sum; wsum = wsum + bv / sum;
         p[bi] = -2.0;
       }
       for (var k: u32 = 0u; k < ${K}u; k = k + 1u) {
-        topkW[k] = topkW[k] / wsum * pes[topkIdx[k]];
+        topkW[tb + k] = topkW[tb + k] / wsum * pes[topkIdx[tb + k]];
       }
     }
   }

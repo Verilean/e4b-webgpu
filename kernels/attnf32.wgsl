@@ -21,11 +21,13 @@ var<workgroup> vpart: array<vec4<f32>, ${WG}>;   // V-phase t-partition partials
 fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
   let h = wid.x;
   let kvh = h / (${Q_HEADS}u / ${KV_HEADS}u);
-  let len = params[1];
+  // BATCH=1 (prefill): wid.z = token; causal len = basePos(params[0]) + tok + 1
+  let bTok = select(0u, wid.z, ${BATCH}u == 1u);
+  let len = select(params[1], params[0] + bTok + 1u, ${BATCH}u == 1u);
   var start: u32 = 0u;
   if (${WINDOW}u != 0u && len > ${WINDOW}u) { start = len - ${WINDOW}u; }
   let hd4 = ${HEAD_DIM}u / 4u;
-  let qBase = h * hd4;
+  let qBase = bTok * ${Q_HEADS}u * hd4 + h * hd4;
 
   // scores (each thread strided over positions)
   var m: f32 = -3.0e38;

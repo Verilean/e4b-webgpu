@@ -22,18 +22,18 @@ struct XU {
   e0: vec4f, o0: vec4f, e1: vec4f, o1: vec4f,
   e2: vec4f, o2: vec4f, e3: vec4f, o3: vec4f,
 };
-fn unpx(dense: bool, jb: u32) -> XU {
+fn unpx(dense: bool, xoff: u32, jb: u32) -> XU {
   if (dense) {
-    let a0 = vec4<f32>(x2[jb * 8u]);      let a1 = vec4<f32>(x2[jb * 8u + 1u]);
-    let a2 = vec4<f32>(x2[jb * 8u + 2u]); let a3 = vec4<f32>(x2[jb * 8u + 3u]);
-    let a4 = vec4<f32>(x2[jb * 8u + 4u]); let a5 = vec4<f32>(x2[jb * 8u + 5u]);
-    let a6 = vec4<f32>(x2[jb * 8u + 6u]); let a7 = vec4<f32>(x2[jb * 8u + 7u]);
+    let a0 = vec4<f32>(x2[xoff + jb * 8u]);      let a1 = vec4<f32>(x2[xoff + jb * 8u + 1u]);
+    let a2 = vec4<f32>(x2[xoff + jb * 8u + 2u]); let a3 = vec4<f32>(x2[xoff + jb * 8u + 3u]);
+    let a4 = vec4<f32>(x2[xoff + jb * 8u + 4u]); let a5 = vec4<f32>(x2[xoff + jb * 8u + 5u]);
+    let a6 = vec4<f32>(x2[xoff + jb * 8u + 6u]); let a7 = vec4<f32>(x2[xoff + jb * 8u + 7u]);
     return XU(a0, a4, a1, a5, a2, a6, a3, a7);
   }
-  let a0 = vec4<f32>(x[jb * 8u]);      let a1 = vec4<f32>(x[jb * 8u + 1u]);
-  let a2 = vec4<f32>(x[jb * 8u + 2u]); let a3 = vec4<f32>(x[jb * 8u + 3u]);
-  let a4 = vec4<f32>(x[jb * 8u + 4u]); let a5 = vec4<f32>(x[jb * 8u + 5u]);
-  let a6 = vec4<f32>(x[jb * 8u + 6u]); let a7 = vec4<f32>(x[jb * 8u + 7u]);
+  let a0 = vec4<f32>(x[xoff + jb * 8u]);      let a1 = vec4<f32>(x[xoff + jb * 8u + 1u]);
+  let a2 = vec4<f32>(x[xoff + jb * 8u + 2u]); let a3 = vec4<f32>(x[xoff + jb * 8u + 3u]);
+  let a4 = vec4<f32>(x[xoff + jb * 8u + 4u]); let a5 = vec4<f32>(x[xoff + jb * 8u + 5u]);
+  let a6 = vec4<f32>(x[xoff + jb * 8u + 6u]); let a7 = vec4<f32>(x[xoff + jb * 8u + 7u]);
   return XU(a0, a4, a1, a5, a2, a6, a3, a7);
 }
 fn bdot(wv: vec4<u32>, u: XU) -> f32 {
@@ -64,8 +64,13 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   _ = topk[0]; _ = y[0]; _ = yh[0]; _ = x[0]; _ = x2[0]; _ = w2[0]; _ = ws2[0]; _ = yh2[0];
   // EXPERT=2 merged grid: z==0 = dense (FF2 rows, x2/w2 → yh2); z>=1 = expert
   // slot z-1 (FF rows, x/w → yh). Other EXPERT values: single-role dispatch.
-  let dense = ${EXPERT}u == 0u || (${EXPERT}u == 2u && wid.z == 0u);
-  let slot = select(wid.z - 1u, wid.z, ${EXPERT}u == 1u);   // expert slot index
+  // BATCH=1 (prefill, EXPERT=2 only): wid.z = token*(1+K)+slot; per-token rows.
+  var bTok: u32 = 0u;
+  var zz = wid.z;
+  if (${BATCH}u == 1u) { bTok = wid.z / (1u + ${K}u); zz = wid.z % (1u + ${K}u); }
+  let dense = ${EXPERT}u == 0u || (${EXPERT}u == 2u && zz == 0u);
+  let slot = select(zz - 1u, zz, ${EXPERT}u == 1u);   // expert slot index
+  let xoff = bTok * (${IN}u / 4u);       // x and x2 share the IN(=hidden) row stride
   let ff = select(${FF}u, ${FF2}u, dense);
   let e0 = (wid.y * 32768u + wid.x) * 4u;
   let valid = e0 < ff;
@@ -73,8 +78,8 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   var eb: u32 = 0u;
   var yb: u32 = 0u;
   if (!dense) {
-    eb = topk[slot] * (2u * ${FF}u * rowB);
-    yb = slot * ${FF}u;
+    eb = topk[bTok * ${K}u + slot] * (2u * ${FF}u * rowB);
+    yb = bTok * ${K}u * ${FF}u + slot * ${FF}u;
   }
   let sg = lid.x / 32u;
   let lane = lid.x % 32u;
@@ -86,7 +91,7 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   var acc1: f32 = 0.0;
   if (valid) {
     for (var jb = lane; jb < rowB; jb = jb + 32u) {
-      let u = unpx(dense, jb);
+      let u = unpx(dense, xoff, jb);
       if (dense) {
         acc0 = acc0 + scaleOf2(b0, jb) * bdot(w2[b0 + jb], u);
         acc1 = acc1 + scaleOf2(b1, jb) * bdot(w2[b1 + jb], u);
@@ -106,7 +111,7 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
     for (var k: u32 = 0u; k < 4u; k = k + 1u) {
       let g = vals[k];
       let gel = 0.5 * g * (1.0 + tanh(clamp(0.7978845608028654 * (g + 0.044715 * g*g*g), -20.0, 20.0)));
-      if (dense) { yh2[e0 + k] = f16(gel * vals[4u + k]); }
+      if (dense) { yh2[bTok * ${FF2}u + e0 + k] = f16(gel * vals[4u + k]); }
       else { yh[yb + e0 + k] = f16(gel * vals[4u + k]); }
     }
   }

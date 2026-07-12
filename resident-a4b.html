@@ -45,6 +45,46 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
       L(allPass ? "GATE PASS" : "GATE FAIL");
       return;
     }
+    if (cmd.mode === "gate2") {
+      // P5 correctness bar: generation after BATCHED prefill must be IDENTICAL
+      // to the token-by-token gate (same goldens).
+      const nNew = cmd.n ?? 24;
+      let allPass = true;
+      for (let pi = 0; pi < goldens.prompts.length; pi++) {
+        if (cmd.p !== undefined && pi !== cmd.p) continue;
+        const g = goldens.prompts[pi];
+        const want = g.generated_ids.slice(0, nNew);
+        const got = await eng.generatePrefill(g.input_ids, want.length);
+        const match = got.length === want.length && got.every((t, i) => t === want[i]);
+        allPass = allPass && match;
+        L(`[p${pi}] ${match ? "MATCH" : "MISMATCH"} got=${JSON.stringify(got)}`);
+        if (!match) L(`[p${pi}] first divergence at ${got.findIndex((t, i) => t !== want[i])}`);
+      }
+      L(allPass ? "GATE2 PASS" : "GATE2 FAIL");
+      return;
+    }
+    if (cmd.mode === "prebench") {
+      // prefill throughput: token-by-token step loop vs batched prefill, same M
+      const m = cmd.m ?? 20;
+      const iters = cmd.iters ?? 3;
+      const ids = goldens.prompts[0].input_ids;
+      const toks = Array.from({ length: m }, (_, i) => ids[i % ids.length]);
+      for (const [name, fn] of [
+        ["tokenwise", async () => { let pos = 0; for (const t of toks) await eng.step(t, pos++); }],
+        ["batched", async () => { eng.prefill(toks); }],
+      ]) {
+        const ts = [];
+        for (let it = 0; it < iters; it++) {
+          const t0 = performance.now();
+          await fn();
+          await eng.device.queue.onSubmittedWorkDone();
+          ts.push(performance.now() - t0);
+        }
+        const best = Math.min(...ts);
+        L(`prefill ${name}: M=${m} best ${best.toFixed(1)}ms = ${(best / m).toFixed(2)}ms/tok (${ts.map((x) => x.toFixed(0)).join("/")})`);
+      }
+      return;
+    }
     if (cmd.mode === "bench") {
       const g = goldens.prompts[0];
       let pos = 0;

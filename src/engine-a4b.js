@@ -222,6 +222,29 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     dumY2: alloc(device, 16),
     dummySumI: alloc(device, 16),
   };
+  // ---- batched-prefill activation set (M6/P5): MPRE-token chunks ----
+  const MPRE = 64;
+  const maxQkv = Math.max(...layers.map((l) => l.qkvRows));
+  Object.assign(A, {
+    tokPre: alloc(device, MPRE * 4),
+    paramsPre: alloc(device, 16),                       // [0]=basePos, [1]=M
+    hP: alloc(device, MPRE * C.hidden * 4),
+    hPB: alloc(device, MPRE * C.hidden * 4),
+    normedP: alloc(device, MPRE * C.hidden * 2),        // f16
+    moeInP: alloc(device, MPRE * C.hidden * 2),          // f16
+    routerInP: alloc(device, MPRE * C.hidden * 4),
+    tmpP: alloc(device, MPRE * C.hidden * 4),
+    moeOutP: alloc(device, MPRE * C.hidden * 4),
+    qkvP: alloc(device, MPRE * maxQkv * 4),
+    qPrepP: alloc(device, MPRE * 16 * C.hdFull * 4),
+    attnOutP: alloc(device, MPRE * 16 * C.hdFull * 2),   // f16
+    gegluP: alloc(device, MPRE * C.inter * 2),           // f16
+    gegluSlotsP: alloc(device, MPRE * KEXP * C.expInter * 2),  // f16
+    routerScoresP: alloc(device, MPRE * C.nExperts * 4),
+    routerCtrP: alloc(device, MPRE * 4),
+    topkIdxP: alloc(device, MPRE * KEXP * 4),
+    topkWP: alloc(device, MPRE * KEXP * 4),
+  });
 
   // ---- pipelines (re-callable: kernel hot-reload without reloading weights) ----
   const kern = {};
@@ -231,18 +254,22 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       IN, OUT, EXPERT: opts.expert ? 1 : 0, XSLOT: opts.xslot ? 1 : 0, XF16: opts.xf16 ? 1 : 0, WG: opts.wg ?? 32 });
     Object.assign(kern, {
     embed: await K.pipeline("q6k", { N: C.hidden, OUT: C.hidden, MODE: 0, TILE: 128,
-      MULT: Math.sqrt(C.hidden).toFixed(8), SOFTCAP: "0.0", TOKSRC: 0 }),
+      MULT: Math.sqrt(C.hidden).toFixed(8), SOFTCAP: "0.0", TOKSRC: 0, BATCH: 0 }),
     embedFeed: await K.pipeline("q6k", { N: C.hidden, OUT: C.hidden, MODE: 0, TILE: 128,
-      MULT: Math.sqrt(C.hidden).toFixed(8), SOFTCAP: "0.0", TOKSRC: 1 }),
+      MULT: Math.sqrt(C.hidden).toFixed(8), SOFTCAP: "0.0", TOKSRC: 1, BATCH: 0 }),
+    embedB: await K.pipeline("q6k", { N: C.hidden, OUT: C.hidden, MODE: 0, TILE: 128,
+      MULT: Math.sqrt(C.hidden).toFixed(8), SOFTCAP: "0.0", TOKSRC: 0, BATCH: 1 }),
     lmHead: await K.pipeline("q6k", { N: C.hidden, OUT: C.vocab, MODE: 1, TILE: 128,
-      MULT: "1.0", SOFTCAP: C.softcap.toFixed(1), TOKSRC: 0 }),
+      MULT: "1.0", SOFTCAP: C.softcap.toFixed(1), TOKSRC: 0, BATCH: 0 }),
     rms: await K.pipeline("rmsnorm", { DIM: C.hidden, EPS: C.eps, WITH_SCALE: 1, SUMOUT: 0, F16OUT: 1, WG: 256 }),
     rmsF32: await K.pipeline("rmsnorm", { DIM: C.hidden, EPS: C.eps, WITH_SCALE: 1, SUMOUT: 0, F16OUT: 0, WG: 256 }),
-    routerTop: await K.pipeline("routertop", { H: C.hidden, E: C.nExperts, K: KEXP, WG: 64 }),
+    routerTop: await K.pipeline("routertop", { H: C.hidden, E: C.nExperts, K: KEXP, WG: 64, BATCH: 0 }),
+    routerTopB: await K.pipeline("routertop", { H: C.hidden, E: C.nExperts, K: KEXP, WG: 64, BATCH: 1 }),
     gegluDense: await K.pipeline("geglumul", { N: C.inter, WG: 256 }),
     gegluSlots: await K.pipeline("geglusl", { FF: C.expInter, K: KEXP, WG: 256 }),
     rms3: await K.pipeline("rms3", { DIM: C.hidden, EPS: C.eps, WG: 256 }),
-    rmsacc3: await K.pipeline("rmsacc3", { DIM: C.hidden, EPS: C.eps, WG: 256 }),
+    rmsacc3: await K.pipeline("rmsacc3", { DIM: C.hidden, EPS: C.eps, WG: 256, BATCH: 0 }),
+    rmsacc3B: await K.pipeline("rmsacc3", { DIM: C.hidden, EPS: C.eps, WG: 256, BATCH: 1 }),
     accH: await K.pipeline("acc", { N: C.hidden, WG: 256 }),
     argmax0: await K.pipeline("argmax2", { N: C.vocab, PARTS: 256, STAGE: 0, WG: 256 }),
     argmax1: await K.pipeline("argmax2", { N: C.vocab, PARTS: 256, STAGE: 1, WG: 256 }),
@@ -256,20 +283,34 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
 
 
     l.guAll = await K.pipeline("q40gu", { IN: C.hidden, FF: C.expInter, FF2: C.inter,
-      E: C.nExperts, K: KEXP, EXPERT: 2 });
+      E: C.nExperts, K: KEXP, EXPERT: 2, BATCH: 0 });
     l.downMv = await K.pipeline("q40mv", { IN: C.inter, OUT: C.hidden, EXPERT: 0, XSLOT: 0, XF16: 1, WG: 32 });
-    l.downExpsMv = await K.pipeline("q40moedown", { IN: C.expInter, OUT: C.hidden, K: KEXP });
+    l.downExpsMv = await K.pipeline("q40moedown", { IN: C.expInter, OUT: C.hidden, K: KEXP, BATCH: 0 });
     l.headprep = await K.pipeline("headprep", { QH: C.qHeads, KVH: l.kvHeads,
       HEAD_DIM: l.headDim, ROPE_ANGLES: ra, THETA: theta, EPS: C.eps,
-      KEQV: l.keqv ? 1 : 0, WG: 128 });
+      KEQV: l.keqv ? 1 : 0, WG: 128, BATCH: 0 });
     l.attn = await K.pipeline("attnf32", { Q_HEADS: C.qHeads, KV_HEADS: l.kvHeads,
-      HEAD_DIM: l.headDim, MAXSEQ, WINDOW: l.isSliding ? C.window : 0, DT: 1, WG: 256 });
+      HEAD_DIM: l.headDim, MAXSEQ, WINDOW: l.isSliding ? C.window : 0, DT: 1, WG: 256, BATCH: 0 });
+    // ---- batched-prefill variants (M6/P5) ----
+    l.qkvMm = await K.pipeline("q40mm", { IN: C.hidden, OUT: l.qkvRows, XF16: 1, WG: 64, MCOLS: 4 });
+    l.oMm = await K.pipeline("q40mm", { IN: l.qOut, OUT: C.hidden, XF16: 1, WG: 32, MCOLS: 4 });
+    l.downMm = await K.pipeline("q40mm", { IN: C.inter, OUT: C.hidden, XF16: 1, WG: 32, MCOLS: 4 });
+    l.guAllB = await K.pipeline("q40gu", { IN: C.hidden, FF: C.expInter, FF2: C.inter,
+      E: C.nExperts, K: KEXP, EXPERT: 2, BATCH: 1 });
+    l.downExpsMvB = await K.pipeline("q40moedown", { IN: C.expInter, OUT: C.hidden, K: KEXP, BATCH: 1 });
+    l.headprepB = await K.pipeline("headprep", { QH: C.qHeads, KVH: l.kvHeads,
+      HEAD_DIM: l.headDim, ROPE_ANGLES: ra, THETA: theta, EPS: C.eps,
+      KEQV: l.keqv ? 1 : 0, WG: 128, BATCH: 1 });
+    l.attnB = await K.pipeline("attnf32", { Q_HEADS: C.qHeads, KV_HEADS: l.kvHeads,
+      HEAD_DIM: l.headDim, MAXSEQ, WINDOW: l.isSliding ? C.window : 0, DT: 1, WG: 256, BATCH: 1 });
     l.attn2 = await K.pipeline("attn2f", { Q_HEADS: C.qHeads, KV_HEADS: l.kvHeads,
       HEAD_DIM: l.headDim, MAXSEQ, WINDOW: l.isSliding ? C.window : 0,
       ROPE_ANGLES: ra, THETA: theta, EPS: C.eps, KEQV: l.keqv ? 1 : 0,
       WG: l.headDim === 512 ? 256 : 128 });
     l.tail = await K.pipeline("a4btail", { H: C.hidden, K: KEXP, EPS: C.eps,
-      MUL: l.layerScalarVal.toPrecision(9), NEXT: l.i + 1 < C.layers ? 1 : 0, WG: 256 });
+      MUL: l.layerScalarVal.toPrecision(9), NEXT: l.i + 1 < C.layers ? 1 : 0, WG: 256, BATCH: 0 });
+    l.tailB = await K.pipeline("a4btail", { H: C.hidden, K: KEXP, EPS: C.eps,
+      MUL: l.layerScalarVal.toPrecision(9), NEXT: l.i + 1 < C.layers ? 1 : 0, WG: 256, BATCH: 1 });
       l.rmsaccOne = await K.pipeline("rmsacc", { DIM: C.hidden, EPS: C.eps, MUL: "1.0", WG: 256 });
     }
     bgCache.clear();
@@ -328,6 +369,90 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     const nx = layers[l.i + 1];
     run(l.tail, [A.tmp, l.postFfw1, A.moeOut, l.postFfw2, l.postFfw, A.hiddenB,
         nx ? nx.attnNorm : l.attnNorm, A.normed, A.hidden], 1);
+  }
+
+  // ---- batched prefill (M6/P5): M tokens per dispatch, per-token math identical
+  // to encodeLayer (same kernels or column-batched q40mm with same acc order) ----
+  function encodeLayerPre(run, l, M) {
+    const zc = Math.ceil(M / 4);                        // q40mm MCOLS=4 chunks
+    run(l.qkvMm, [A.dumX, l.qkvCat.nibBuf, l.qkvCat.scBuf, A.paramsPre, A.qkvP, A.normedP],
+        [wg(l.qkvRows, 4), 1, zc]);
+    run(l.headprepB, [A.qkvP, l.qNorm, l.kNorm, A.paramsPre, l.kCache, l.vCache, A.dummySumI,
+        A.qPrepP], [C.qHeads + 2 * l.kvHeads, M]);
+    run(l.attnB, [A.qPrepP, l.kCache, l.vCache, A.paramsPre, A.attnOutP], [C.qHeads, 1, M]);
+    run(l.oMm, [A.dumX, l.o.nibBuf, l.o.scBuf, A.paramsPre, A.tmpP, A.attnOutP],
+        [wg(C.hidden, 2), 1, zc]);
+    run(kern.rmsacc3B, [A.tmpP, l.postAttnNorm, l.ffnNorm, l.routerS, l.preFfw2,
+        A.hP, A.normedP, A.routerInP, A.moeInP, A.hPB], M);
+    run(kern.routerTopB, [A.routerInP, l.routerW, l.pes, A.routerScoresP, A.routerCtrP,
+        A.topkIdxP, A.topkWP], [C.nExperts, M]);
+    run(l.guAllB, [A.moeInP, l.guExps.nibBuf, l.guExps.scBuf, A.topkIdxP, A.dumY1, A.gegluSlotsP,
+        A.normedP, l.guCat.nibBuf, l.guCat.scBuf, A.gegluP],
+        [wg(C.inter, 4), 1, M * (1 + KEXP)]);
+    run(l.downMm, [A.dumX, l.down.nibBuf, l.down.scBuf, A.paramsPre, A.tmpP, A.gegluP],
+        [wg(C.hidden, 2), 1, zc]);
+    run(l.downExpsMvB, [A.gegluSlotsP, l.downExps.nibBuf, l.downExps.scBuf, A.topkIdxP, A.topkWP,
+        A.moeOutP], [wg(C.hidden, 4), 1, M]);
+    const nx = layers[l.i + 1];
+    run(l.tailB, [A.tmpP, l.postFfw1, A.moeOutP, l.postFfw2, l.postFfw, A.hPB,
+        nx ? nx.attnNorm : l.attnNorm, A.normedP, A.hP], M);
+  }
+
+  // Fills the KV caches for inputIds (chunks of MPRE) and leaves the LAST
+  // token's logits/argmax in A.logits/A.amax — ready for decodeChunk at
+  // pos = inputIds.length. lm_head runs ONCE (vs per token in the step loop).
+  function prefill(inputIds) {
+    for (let off = 0; off < inputIds.length; off += MPRE) {
+      const chunk = inputIds.slice(off, off + MPRE);
+      const M = chunk.length;
+      const last = off + M >= inputIds.length;
+      device.queue.writeBuffer(A.tokPre, 0, new Uint32Array(chunk));
+      device.queue.writeBuffer(A.paramsPre, 0, new Uint32Array([off, M, 0, 0]));
+      const enc = device.createCommandEncoder();
+      let pass = enc.beginComputePass();
+      let run = mkRun(pass);
+      run(kern.embedB, [model.embQl, model.embQh, model.embSc, model.embD, A.paramsPre,
+          A.normed /*unused x*/, A.hP, A.tokPre], [1, M]);
+      run(kern.rms, [A.hP, layers[0].attnNorm, A.tmp /*unused f32 y*/, A.dummySums, A.normedP], M);
+      for (const l of layers) encodeLayerPre(run, l, M);
+      pass.end();
+      if (last) {
+        enc.copyBufferToBuffer(A.hP, (M - 1) * C.hidden * 4, A.hidden, 0, C.hidden * 4);
+        pass = enc.beginComputePass();
+        run = mkRun(pass);
+        run(kern.rmsF32, [A.hidden, model.outNorm, A.tmp, A.dummySums, A.normed], 1);
+        run(kern.lmHead, [model.embQl, model.embQh, model.embSc, model.embD, A.params,
+            A.tmp, A.logits, A.amax], wg2(C.vocab / 128));
+        run(kern.argmax0, [A.logits, A.amaxPart, A.amax], 256);
+        run(kern.argmax1, [A.logits, A.amaxPart, A.amax], 1);
+        pass.end();
+      }
+      device.queue.submit([enc.finish()]);
+    }
+  }
+
+  async function generatePrefill(inputIds, maxNew, eosIds = new Set([106, 1])) {
+    prefill(inputIds);
+    let pos = inputIds.length;
+    const g0 = await argmaxFast();
+    const out = [g0];
+    if (eosIds.has(g0)) return out;
+    let done = 1;
+    while (done < maxNew) {
+      const n = Math.min(8, maxNew - done);
+      decodeChunk(pos, n, done - 1);
+      pos += n;
+      const ring = new Uint32Array(await readback(device, A.tokRing, (done - 1 + n) * 8));
+      let stop = false;
+      for (let k = done - 1; k < done - 1 + n; k++) {
+        const t = ring[k * 2];
+        out.push(t);
+        if (eosIds.has(t)) { stop = true; break; }
+      }
+      done += n;
+      if (stop) break;
+    }
+    return out.slice(0, maxNew);
   }
 
   function encodeForward(run, P = A.params, decode = false) {
@@ -457,5 +582,6 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   }
 
   return { device, C, layers, model, A, kern, step, decodeChunk, generateFast,
+           prefill, generatePrefill,
            argmaxFast, readHidden, encodeForward, encodeLayerPub: encodeLayer, mkRun, bindPub: bind, rebuildPipelines, profileStep };
 }

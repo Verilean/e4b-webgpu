@@ -24,15 +24,17 @@ fn redAdd(lid: u32, v: f32) -> f32 {
   return tot;
 }
 @compute @workgroup_size(${WG})
-fn main(@builtin(local_invocation_id) lid3: vec3<u32>) {
+fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid3: vec3<u32>) {
   let lid = lid3.x;
+  // BATCH=1 (prefill): wid.x = token; activation arrays get a row offset
+  let ob = select(0u, wid.x * ${H}u, ${BATCH}u == 1u);
   // rms(t1) and rms(m) — two reductions (m recomputed cheaply per element)
   var s1: f32 = 0.0;
   var s2: f32 = 0.0;
   for (var i = lid; i < ${H}u; i = i + ${WG}u) {
-    let a = t1[i];
+    let a = t1[ob + i];
     s1 = s1 + a * a;
-    let mv = m[i];
+    let mv = m[ob + i];
     comb[i] = mv;
     s2 = s2 + mv * mv;
   }
@@ -42,7 +44,7 @@ fn main(@builtin(local_invocation_id) lid3: vec3<u32>) {
   let inv2 = pow(r2 / f32(${H}u) + ${EPS}, -0.5);
   var s3: f32 = 0.0;
   for (var i = lid; i < ${H}u; i = i + ${WG}u) {
-    let c = t1[i] * inv1 * w1[i] + comb[i] * inv2 * w2[i];
+    let c = t1[ob + i] * inv1 * w1[i] + comb[i] * inv2 * w2[i];
     comb[i] = c;
     s3 = s3 + c * c;
   }
@@ -50,8 +52,8 @@ fn main(@builtin(local_invocation_id) lid3: vec3<u32>) {
   let inv3 = pow(r3 / f32(${H}u) + ${EPS}, -0.5);
   var s4: f32 = 0.0;
   for (var i = lid; i < ${H}u; i = i + ${WG}u) {
-    let hn = (hIn[i] + comb[i] * inv3 * wp[i]) * ${MUL};
-    hOut[i] = hn;
+    let hn = (hIn[ob + i] + comb[i] * inv3 * wp[i]) * ${MUL};
+    hOut[ob + i] = hn;
     comb[i] = hn;
     s4 = s4 + hn * hn;
   }
@@ -60,7 +62,7 @@ fn main(@builtin(local_invocation_id) lid3: vec3<u32>) {
     let r4 = redAdd(lid, s4);
     let inv4 = pow(r4 / f32(${H}u) + ${EPS}, -0.5);
     for (var i = lid; i < ${H}u; i = i + ${WG}u) {
-      yNext[i] = f16(comb[i] * inv4 * wNext[i]);
+      yNext[ob + i] = f16(comb[i] * inv4 * wNext[i]);
     }
   } else {
     _ = wNext[0];

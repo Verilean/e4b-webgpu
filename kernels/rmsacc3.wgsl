@@ -25,18 +25,20 @@ fn redAdd(lid: u32, v: f32) -> f32 {
   return tot;
 }
 @compute @workgroup_size(${WG})
-fn main(@builtin(local_invocation_id) lid3: vec3<u32>) {
+fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid3: vec3<u32>) {
   let lid = lid3.x;
+  // BATCH=1 (prefill): wid.x = token; all activation arrays get a row offset
+  let ob = select(0u, wid.x * ${DIM}u, ${BATCH}u == 1u);
   var s: f32 = 0.0;
   for (var i = lid; i < ${DIM}u; i = i + ${WG}u) {
-    let v = t[i];
+    let v = t[ob + i];
     s = s + v * v;
   }
   let inv1 = pow(redAdd(lid, s) / f32(${DIM}u) + ${EPS}, -0.5);
   var s2: f32 = 0.0;
   for (var i = lid; i < ${DIM}u; i = i + ${WG}u) {
-    let h = hIn[i] + t[i] * inv1 * wAcc[i];
-    hOut[i] = h;
+    let h = hIn[ob + i] + t[ob + i] * inv1 * wAcc[i];
+    hOut[ob + i] = h;
     hs[i] = h;
     s2 = s2 + h * h;
   }
@@ -44,8 +46,8 @@ fn main(@builtin(local_invocation_id) lid3: vec3<u32>) {
   let inv2 = pow(redAdd(lid, s2) / f32(${DIM}u) + ${EPS}, -0.5);
   for (var i = lid; i < ${DIM}u; i = i + ${WG}u) {
     let v = hs[i] * inv2;
-    y1[i] = f16(v * w1[i]);
-    y2[i] = v * w2[i];
-    y3[i] = f16(v * w3[i]);
+    y1[ob + i] = f16(v * w1[i]);
+    y2[ob + i] = v * w2[i];
+    y3[ob + i] = f16(v * w3[i]);
   }
 }

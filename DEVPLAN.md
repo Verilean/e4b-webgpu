@@ -632,3 +632,38 @@ Leg conclusion: dispatch floor stays ~10/layer; the honest A4B endpoint on
 current WebGPU = quiet-window **10.52 ms = 95.0 tok/s** (84.4% of llama.cpp,
 same-bytes comparison). Next value: M5 recording, then M6 prefill GEMM (k13
 confirms webml's prefill recipe: subgroup-matrix, int8 codes, f16 tiles).
+
+## P5 result (2026-07-12): batched prefill lands, gate exact — prediction MISSED honestly
+
+Implementation (one leg): `q40mm.wgsl` (multi-column matvec: each WG loads its
+2 rows' q4_0 blocks ONCE and reuses them across MCOLS=4 token columns; per-token
+jb/subgroupAdd order identical to q40mv → bit-identical activations) + `BATCH`
+templates on 7 kernels (q6k embed rows, headprep per-token pos/rows, attnf32
+causal len=basePos+tok+1, rmsacc3/a4btail row offsets, routertop per-token
+scores/ctr/topk, q40gu z=tok·(1+K)+slot, q40moedown z=tok). MoE stays
+per-token (expert indirection unchanged). lm_head runs ONCE per prompt (the
+step loop pays it per token). Chunks of MPRE=64.
+
+- **Correctness: GATE2 PASS** — generation after batched prefill IDENTICAL to
+  the token-by-token gate on all 3 prompts, first run. (The bit-identity design
+  goal held: same kernels or same accumulation order throughout.)
+- **Throughput: 2.26× at M=20** (8.19 → 3.62 ms/tok), **2.16× at M=64**
+  (7.98 → 3.69). Decode-path regression gate: PASS (BATCH=0 folds to the old
+  code).
+
+**P5 verdict: prediction MISSED** (pre-registered ≥4× at M=20, ≥6× at M=64; got
+~2.2×). The miss is diagnostic and was foreseeable from the byte budget: the
+batched floor is M-INVARIANT (3.62 ≈ 3.69 ms/tok) — exactly the signature of
+the un-amortized term. Per token the MoE reads 8 experts × (gate_up 2816×1408 +
+down 704×2816) q4_0 ≈ 27 MB/layer × 30 ≈ 0.8 GB regardless of M; the amortized
+parts (attn+dense ≈ 0.6 GB/tok at M=1) shrink 20-64×, and lm_head (0.6 GB)
+drops out per-token — that predicts ≈ 0.85 GB/tok ≈ 2.3-2.4× — which is what
+landed. ~3.7 ms/tok × 64 tok ≈ 51 GB / 236 ms ≈ 216 GB/s: the batched prefill
+is STILL BW-bound, on expert weights.
+
+**Consequence (P6 refined, same spirit):** the big prefill lever is not the
+GEMM shape of the dense parts (already amortized) but **expert grouping**
+(mul_mat_id): at M=64, 512 slot-draws hit ≤128 unique experts → grouped expert
+reads shrink ~4× → ≈ 0.25 GB/tok ≈ ~1.2 ms/tok candidate. Subgroup-matrix (k13
+recipe) then matters where compute becomes the wall. Order: group experts
+first, then subgroup-matrix on the grouped GEMMs.

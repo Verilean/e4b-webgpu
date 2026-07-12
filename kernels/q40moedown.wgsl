@@ -43,14 +43,17 @@ fn scaleOf(base: u32, b: u32) -> f32 {
 fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid3: vec3<u32>) {
   let sg = lid3.x / 32u;
   let lid = vec3<u32>(lid3.x % 32u, 0u, 0u);
+  // BATCH=1 (prefill): wid.z = token; per-token topk/tkw/x/y blocks
+  let bTok = select(0u, wid.z, ${BATCH}u == 1u);
+  let tb = bTok * ${K}u;
   let o0 = ((wid.y * 32768u + wid.x) * 2u + sg) * 2u;
   let valid = o0 < ${OUT}u;
   let rowB = ${IN}u / 32u;
   var acc0: f32 = 0.0;
   var acc1: f32 = 0.0;
   for (var k: u32 = 0u; k < select(0u, ${K}u, valid); k = k + 1u) {
-    let eb = topk[k] * (${OUT}u * rowB);
-    let xoff = k * (${IN}u / 4u);
+    let eb = topk[tb + k] * (${OUT}u * rowB);
+    let xoff = (tb + k) * (${IN}u / 4u);
     let b0 = eb + o0 * rowB;
     let b1 = b0 + rowB;
     var s0: f32 = 0.0;
@@ -60,12 +63,13 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
       s0 = s0 + scaleOf(b0, jb) * bdot(w[b0 + jb], u);
       s1 = s1 + scaleOf(b1, jb) * bdot(w[b1 + jb], u);
     }
-    let tw = tkw[k];
+    let tw = tkw[tb + k];
     acc0 = acc0 + tw * s0;
     acc1 = acc1 + tw * s1;
   }
   let t0 = subgroupAdd(acc0);
   let t1 = subgroupAdd(acc1);
-  if (valid && lid.x == 0u) { y[o0] = t0; }
-  if (valid && lid.x == 1u && o0 + 1u < ${OUT}u) { y[o0 + 1u] = t1; }
+  let ob = bTok * ${OUT}u;
+  if (valid && lid.x == 0u) { y[ob + o0] = t0; }
+  if (valid && lid.x == 1u && o0 + 1u < ${OUT}u) { y[ob + o0 + 1u] = t1; }
 }

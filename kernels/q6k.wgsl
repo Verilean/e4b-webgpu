@@ -35,7 +35,10 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   let scU = bpr * 4u;
 
   if (${MODE}u == 0u) {
-    let row = select(params[2], tok[0], ${TOKSRC}u == 1u);
+    // BATCH=1 (prefill): wid.y = token index; row from tok[wid.y]; out row wid.y
+    var row = select(params[2], tok[0], ${TOKSRC}u == 1u);
+    var ob: u32 = 0u;
+    if (${BATCH}u == 1u) { row = tok[wid.y]; ob = wid.y * ${N}u; }
     let tile = row / ${TILE}u;
     let t = row % ${TILE}u;
     for (var b = lid; b < bpr; b = b + ${TILE}u) {
@@ -58,10 +61,10 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
             let q2 = f32(i32(((qlB >> (k * 8u)) & 0xFu) | (((qhw >> (k * 8u + 2u)) & 3u) << 4u))) - 32.0;
             let q3 = f32(i32(((qlA >> (k * 8u + 4u)) & 0xFu) | (((qhw >> (k * 8u + 4u)) & 3u) << 4u))) - 32.0;
             let q4 = f32(i32(((qlB >> (k * 8u + 4u)) & 0xFu) | (((qhw >> (k * 8u + 6u)) & 3u) << 4u))) - 32.0;
-            y[base + k]        = d * s0 * q1 * ${MULT};
-            y[base + k + 32u]  = d * s2 * q2 * ${MULT};
-            y[base + k + 64u]  = d * s4 * q3 * ${MULT};
-            y[base + k + 96u]  = d * s6 * q4 * ${MULT};
+            y[ob + base + k]        = d * s0 * q1 * ${MULT};
+            y[ob + base + k + 32u]  = d * s2 * q2 * ${MULT};
+            y[ob + base + k + 64u]  = d * s4 * q3 * ${MULT};
+            y[ob + base + k + 96u]  = d * s6 * q4 * ${MULT};
           }
         }
       }
