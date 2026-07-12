@@ -173,6 +173,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   const bgCache = new Map();
   const A = {
     params: alloc(device, 16),
+    paramsRing: Array.from({ length: 16 }, () => alloc(device, 16)),
     hidden: alloc(device, C.hidden * 4),
     normed: alloc(device, C.hidden * 4),
     tmp: alloc(device, C.hidden * 4),
@@ -268,13 +269,13 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   const wg = (n, w) => Math.ceil(n / w);
   const wg2 = (rows) => rows <= 32768 ? [rows] : [32768, Math.ceil(rows / 32768)];
 
-  function encodeLayer(run, l) {
+  function encodeLayer(run, l, P) {
     // attention (layer 0 norms here; later layers get A.normed from the prev tail)
     if (l.i === 0) run(kern.rms, [A.hidden, l.attnNorm, A.normed, A.dummySums], 1);
     run(l.qkvMv, [A.normed, l.qkvCat.nibBuf, l.qkvCat.scBuf, A.topkIdx, A.qkv], wg(l.qkvRows, 2));
-    run(l.headprep, [A.qkv, l.qNorm, l.kNorm, A.params, l.kCache, l.vCache, A.dummySumI],
+    run(l.headprep, [A.qkv, l.qNorm, l.kNorm, P, l.kCache, l.vCache, A.dummySumI],
         C.qHeads + 2 * l.kvHeads);
-    run(l.attn, [A.qkv, l.kCache, l.vCache, A.params, A.attnOut], [C.qHeads, 1]);
+    run(l.attn, [A.qkv, l.kCache, l.vCache, P, A.attnOut], [C.qHeads, 1]);
     run(l.oMv, [A.attnOut, l.o.nibBuf, l.o.scBuf, A.topkIdx, A.tmp], wg(C.hidden, 2));
     // fused: postAttn norm + residual + the ffn/router/pre-ffw-2 triple norm
     run(kern.rmsacc3, [A.tmp, l.postAttnNorm, l.ffnNorm, l.routerS, l.preFfw2,
@@ -293,12 +294,12 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
         nx ? nx.attnNorm : l.attnNorm, A.normed], 1);
   }
 
-  function encodeForward(run) {
-    run(kern.embed, [model.embQl, model.embQh, model.embSc, model.embD, A.params,
+  function encodeForward(run, P = A.params) {
+    run(kern.embed, [model.embQl, model.embQh, model.embSc, model.embD, P,
         A.normed /*unused x*/, A.hidden], 1);
-    for (const l of layers) encodeLayer(run, l);
+    for (const l of layers) encodeLayer(run, l, P);
     run(kern.rms, [A.hidden, model.outNorm, A.normed, A.dummySums], 1);
-    run(kern.lmHead, [model.embQl, model.embQh, model.embSc, model.embD, A.params,
+    run(kern.lmHead, [model.embQl, model.embQh, model.embSc, model.embD, P,
         A.normed, A.logits], wg2(C.vocab / 128));
     run(kern.argmax0, [A.logits, A.amaxPart, A.amax], 256);
     run(kern.argmax1, [A.logits, A.amaxPart, A.amax], 1);
@@ -353,16 +354,24 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   }
 
   function decodeChunk(startPos, count, ringBase) {
-    for (let i = 0; i < count; i++) {
-      const pos = startPos + i;
-      device.queue.writeBuffer(A.params, 0, new Uint32Array([pos, pos + 1]));
+    // one encoder/submit per up to 8 tokens; per-token params come from a ring
+    // (positions are known up front; the token id flows GPU-side via feedTok)
+    for (let c = 0; c < count; c += 16) {
+      const n = Math.min(16, count - c);
+      for (let i = 0; i < n; i++) {
+        const pos = startPos + c + i;
+        device.queue.writeBuffer(A.paramsRing[i], 0, new Uint32Array([pos, pos + 1]));
+      }
       const enc = device.createCommandEncoder();
-      const pass = enc.beginComputePass();
-      const run = mkRun(pass);
-      run(kern.feedTok, [A.amax, A.params], 1);
-      encodeForward(run);
-      pass.end();
-      enc.copyBufferToBuffer(A.amax, 0, A.tokRing, (ringBase + i) * 8, 8);
+      for (let i = 0; i < n; i++) {
+        const P = A.paramsRing[i];
+        const pass = enc.beginComputePass();
+        const run = mkRun(pass);
+        run(kern.feedTok, [A.amax, P], 1);
+        encodeForward(run, P);
+        pass.end();
+        enc.copyBufferToBuffer(A.amax, 0, A.tokRing, (ringBase + c + i) * 8, 8);
+      }
       device.queue.submit([enc.finish()]);
     }
   }

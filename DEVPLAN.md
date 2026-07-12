@@ -401,3 +401,26 @@ halved (at context 640 that is ~286→143 MB/token ≈ −0.5 ms; at bench lengt
 Remaining f16 candidates rejected for M=1 decode: f16 matvec arithmetic (ALU
 is not the wall; precision risk) and f16 activations (broadcast-cached, no
 traffic to save).
+
+## Campaign 2 — M4 leg 3 (2026-07-08 night): 12.2 → 11.11 ms = 90.0 tok/s
+
+- **q40moedown**: MoE down re-designed slot-COMBINED — each WG owns 2 output
+  rows and iterates all 8 slots (expert rows via topk, per-slot x), emitting the
+  topkW-weighted sum directly. Kills the downSlots buffer, the combine work in
+  the tail, and the 69%-lane-idle shape. −1.1 ms wall (adjacent A/B).
+- **routertop**: router scores + top-8 in ONE dispatch via the decoupled
+  last-WG pattern (atomic completion counter; scores atomicStore'd for cross-WG
+  coherency; Tint uniformity satisfied by hoisting the barrier out of the
+  flagged branch). −1 dispatch/layer.
+- **Submit batching**: decodeChunk now encodes 16 tokens per command encoder
+  using a params-ring (positions known ahead; token ids flow GPU-side through
+  feedTok) — one queue.submit per 16 tokens instead of per token. −0.8 ms.
+- Dispatches/layer: 24 (naive) → 11. GATE PASS (3/3 token-exact) throughout.
+- **Measurement protocol note**: the FIRST bench after a resident restart is
+  polluted by lazy Metal pipeline compilation — always measure from the second
+  run. Warm-band best now 11.11 ms; serialized profile ≈ 9.5 ms.
+
+Remaining: cold-box truth run (morning protocol); kernel-sum floor ≈ 9.4 ms
+means parity with llama.cpp (8.89) also needs ~0.5 ms of kernel wins
+(lm_head 388→460 GB/s, qkv 268→330, moedown LSU shape) — all identified,
+diminishing, honest.
