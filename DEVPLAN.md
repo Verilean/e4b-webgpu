@@ -1002,3 +1002,17 @@ campaign, not a platform issue. Full same-day table:
 | browser (WebGPU) | 95.0 tok/s | 1010 tok/s |
 | **Metal runner** | **127.6 (fast) / 119.6 (exact)** | **1076** |
 | llama.cpp Metal | 114.6 | 1470 |
+
+## Memo: post-Campaign-3 options (2026-07-12, recorded, not scheduled)
+
+The replication series is SUFFICIENT for the report's claims (3 campaigns:
+replicate → self-correct → causal confirmation). Options if resumed, by value:
+(a) R1-Distill-Qwen-32B framed as the BOUNDARY-TAX SCALING LAW test (dense
+32B ≈ 18.5GB/tok, ~450 dispatches → predict browser ≈ Metal ≈ llama.cpp
+within a few % — closes the "when does the platform tax matter" story) + it
+forces the LONG-CONTEXT work (MAXSEQ=640 is the real untested weakness);
+(b) prefill kernel campaign (1076 vs llama.cpp 1470 — pure kernel race,
+boundary tax excluded); (c) decode format lever (Q6_K lm_head → int4 behind
+the quality gate, ~135-140 tok/s class); (d) productization (HF Space of the
+only WebGPU A4B; standalone Metal runner loader). Owner's pick deferred —
+next project: gemma4 E2B Mamba/Jamba-ization (separate campaign).
