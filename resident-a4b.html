@@ -140,6 +140,19 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
         L(`  ${(e.us / 1000).toFixed(3)}ms x${e.n}  ${lb.slice(0, 100)}`);
       return;
     }
+    if (cmd.mode === "profile2") {
+      const m = cmd.m ?? 64;
+      const ids = goldens.prompts[0].input_ids;
+      const toks = Array.from({ length: m }, (_, i) => ids[i % ids.length]);
+      const prof = await eng.profilePrefill(toks);
+      if (!prof) { L("no timestamp-query"); return; }
+      const rows = [...prof.entries()].sort((a, b) => b[1].us - a[1].us);
+      const tot = rows.reduce((a, r) => a + r[1].us, 0);
+      L(`prefill profile (serialized, M=${m}): ${(tot / 1000).toFixed(2)}ms total = ${(tot / 1000 / m).toFixed(2)}ms/tok`);
+      for (const [lb, e] of rows.slice(0, 14))
+        L(`  ${(e.us / 1000).toFixed(3)}ms x${e.n}  ${lb.slice(0, 90)}`);
+      return;
+    }
     if (cmd.mode === "fencetest") {
       const { Kernels } = await import("./src/gpu.js");
       const K2 = new Kernels(eng.device);

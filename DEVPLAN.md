@@ -690,3 +690,22 @@ Two levers, pre-registered:
   M=64 (≥ 5× vs tokenwise; ≥ 2.3× vs P5). Gate/up grouping is bit-identical
   per entry (same jb order); grouped DOWN changes the k-sum order → gate2 may
   flip near-ties, judged separately.
+
+## P6a result (2026-07-12): subgroup-matrix GEMM — prediction HIT, gate exact
+
+`q40sg.wgsl`: 32M×64N×32K tiles (one q4_0 block = one K-tile), WG=128 = 4
+subgroups × (2×4) 8x8 f32 result mats, JIT-dequant B tiles with the block scale
+folded, **f32 tiles** so the dequant stays exact — the only numeric change vs
+q40mv is summation order. Feature `chromium-experimental-subgroup-matrix`
+requested when present; `?sgm=0` falls back to q40mm.
+
+- **gate2: PASS, all 3 prompts EXACT** — the accumulation-order change did not
+  flip a single token (f32-tile design goal held).
+- The q40mm class: 107 → **36.1 ms** (qkv 46+9 → 14.2+2.6, o 26+11 → 10.2+3.5,
+  dense down 15 → 5.6). Predicted ≤ 35: **HIT** (36.1).
+- Prefill M=64: 3.69 → **2.69 ms/tok** (predicted ≤ 2.7: **HIT**) = 2.97× vs
+  tokenwise. M=20: 3.54 ms/tok (MoE-bound; single 32-row M-tile carries 12
+  wasted rows).
+
+Budget after P6a (M=64, 180 ms serialized): **MoE gate/up 98.2 + MoE down 41.1
+= 77%** — the un-amortized expert reads are now cleanly the whole story → P6b.

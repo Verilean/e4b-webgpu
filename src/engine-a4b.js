@@ -15,6 +15,7 @@ import { initDevice, upload, alloc, readback, Kernels } from "./gpu.js";
 const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => {});
 const MAXSEQ = 640;
 const ATTN2 = new URLSearchParams(globalThis.location?.search ?? "").get("attn2") === "1";
+const SGM_OFF = new URLSearchParams(globalThis.location?.search ?? "").get("sgm") === "0";
 
 // ---- repackers (q4_0 / q6_K planes; 18B and 210B blocks are not word-aligned) ----
 function repackQ40(buf) {
@@ -295,6 +296,12 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     l.qkvMm = await K.pipeline("q40mm", { IN: C.hidden, OUT: l.qkvRows, XF16: 1, WG: 64, MCOLS: 4 });
     l.oMm = await K.pipeline("q40mm", { IN: l.qOut, OUT: C.hidden, XF16: 1, WG: 32, MCOLS: 4 });
     l.downMm = await K.pipeline("q40mm", { IN: C.inter, OUT: C.hidden, XF16: 1, WG: 32, MCOLS: 4 });
+    // ---- subgroup-matrix GEMM variants (M6/P6a; f32 tiles = exact dequant) ----
+    if (device.features.has("chromium-experimental-subgroup-matrix") && !SGM_OFF) {
+      l.qkvSg = await K.pipeline("q40sg", { IN: C.hidden, OUT: l.qkvRows, TPREC: "f32" });
+      l.oSg = await K.pipeline("q40sg", { IN: l.qOut, OUT: C.hidden, TPREC: "f32" });
+      l.downSg = await K.pipeline("q40sg", { IN: C.inter, OUT: C.hidden, TPREC: "f32" });
+    }
     l.guAllB = await K.pipeline("q40gu", { IN: C.hidden, FF: C.expInter, FF2: C.inter,
       E: C.nExperts, K: KEXP, EXPERT: 2, BATCH: 1 });
     l.downExpsMvB = await K.pipeline("q40moedown", { IN: C.expInter, OUT: C.hidden, K: KEXP, BATCH: 1 });
@@ -375,12 +382,17 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   // to encodeLayer (same kernels or column-batched q40mm with same acc order) ----
   function encodeLayerPre(run, l, M) {
     const zc = Math.ceil(M / 4);                        // q40mm MCOLS=4 chunks
-    run(l.qkvMm, [A.dumX, l.qkvCat.nibBuf, l.qkvCat.scBuf, A.paramsPre, A.qkvP, A.normedP],
+    const mt = Math.ceil(M / 32);                       // q40sg 32-token tiles
+    if (l.qkvSg) run(l.qkvSg, [A.normedP, l.qkvCat.nibBuf, l.qkvCat.scBuf, A.paramsPre, A.qkvP],
+        [l.qkvRows / 64, mt]);
+    else run(l.qkvMm, [A.dumX, l.qkvCat.nibBuf, l.qkvCat.scBuf, A.paramsPre, A.qkvP, A.normedP],
         [wg(l.qkvRows, 4), 1, zc]);
     run(l.headprepB, [A.qkvP, l.qNorm, l.kNorm, A.paramsPre, l.kCache, l.vCache, A.dummySumI,
         A.qPrepP], [C.qHeads + 2 * l.kvHeads, M]);
     run(l.attnB, [A.qPrepP, l.kCache, l.vCache, A.paramsPre, A.attnOutP], [C.qHeads, 1, M]);
-    run(l.oMm, [A.dumX, l.o.nibBuf, l.o.scBuf, A.paramsPre, A.tmpP, A.attnOutP],
+    if (l.oSg) run(l.oSg, [A.attnOutP, l.o.nibBuf, l.o.scBuf, A.paramsPre, A.tmpP],
+        [C.hidden / 64, mt]);
+    else run(l.oMm, [A.dumX, l.o.nibBuf, l.o.scBuf, A.paramsPre, A.tmpP, A.attnOutP],
         [wg(C.hidden, 2), 1, zc]);
     run(kern.rmsacc3B, [A.tmpP, l.postAttnNorm, l.ffnNorm, l.routerS, l.preFfw2,
         A.hP, A.normedP, A.routerInP, A.moeInP, A.hPB], M);
@@ -389,7 +401,9 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     run(l.guAllB, [A.moeInP, l.guExps.nibBuf, l.guExps.scBuf, A.topkIdxP, A.dumY1, A.gegluSlotsP,
         A.normedP, l.guCat.nibBuf, l.guCat.scBuf, A.gegluP],
         [wg(C.inter, 4), 1, M * (1 + KEXP)]);
-    run(l.downMm, [A.dumX, l.down.nibBuf, l.down.scBuf, A.paramsPre, A.tmpP, A.gegluP],
+    if (l.downSg) run(l.downSg, [A.gegluP, l.down.nibBuf, l.down.scBuf, A.paramsPre, A.tmpP],
+        [C.hidden / 64, mt]);
+    else run(l.downMm, [A.dumX, l.down.nibBuf, l.down.scBuf, A.paramsPre, A.tmpP, A.gegluP],
         [wg(C.hidden, 2), 1, zc]);
     run(l.downExpsMvB, [A.gegluSlotsP, l.downExps.nibBuf, l.downExps.scBuf, A.topkIdxP, A.topkWP,
         A.moeOutP], [wg(C.hidden, 4), 1, M]);
@@ -510,6 +524,45 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     return agg;
   }
 
+  // per-dispatch GPU budget of ONE batched-prefill chunk (ranking only)
+  async function profilePrefill(inputIds) {
+    if (!device.features.has("timestamp-query")) return null;
+    const M = Math.min(inputIds.length, MPRE);
+    device.queue.writeBuffer(A.tokPre, 0, new Uint32Array(inputIds.slice(0, M)));
+    device.queue.writeBuffer(A.paramsPre, 0, new Uint32Array([0, M, 0, 0]));
+    const qs = device.createQuerySet({ type: "timestamp", count: 4096 });
+    const enc = device.createCommandEncoder();
+    const labels = [];
+    const run = (k, bufs, groups) => {
+      const i = labels.length;
+      const pass = enc.beginComputePass({ timestampWrites: {
+        querySet: qs, beginningOfPassWriteIndex: 2 * i, endOfPassWriteIndex: 2 * i + 1 } });
+      pass.setPipeline(k.pipeline);
+      pass.setBindGroup(0, bind(k, bufs));
+      pass.dispatchWorkgroups(...(Array.isArray(groups) ? groups : [groups]));
+      pass.end();
+      labels.push(k.pipeline.label);
+    };
+    run(kern.embedB, [model.embQl, model.embQh, model.embSc, model.embD, A.paramsPre,
+        A.normed, A.hP, A.tokPre], [1, M]);
+    run(kern.rms, [A.hP, layers[0].attnNorm, A.tmp, A.dummySums, A.normedP], M);
+    for (const l of layers) encodeLayerPre(run, l, M);
+    const qbuf = device.createBuffer({ size: labels.length * 16,
+      usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC });
+    enc.resolveQuerySet(qs, 0, labels.length * 2, qbuf, 0);
+    device.queue.submit([enc.finish()]);
+    const t = new BigUint64Array(await readback(device, qbuf, labels.length * 16));
+    const agg = new Map();
+    labels.forEach((lb, i) => {
+      const us = Number(t[2 * i + 1] - t[2 * i]) / 1000;
+      const e = agg.get(lb) ?? { us: 0, n: 0 };
+      e.us += us; e.n += 1;
+      agg.set(lb, e);
+    });
+    qs.destroy(); qbuf.destroy();
+    return agg;
+  }
+
   async function argmaxFast() {
     const u = new Uint32Array(await readback(device, A.amax, 8));
     return u[0];
@@ -582,6 +635,6 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   }
 
   return { device, C, layers, model, A, kern, step, decodeChunk, generateFast,
-           prefill, generatePrefill,
+           prefill, generatePrefill, profilePrefill,
            argmaxFast, readHidden, encodeForward, encodeLayerPub: encodeLayer, mkRun, bindPub: bind, rebuildPipelines, profileStep };
 }
