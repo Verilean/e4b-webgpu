@@ -100,6 +100,12 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
         L(`  ${(e.us / 1000).toFixed(3)}ms x${e.n}  ${lb.slice(0, 100)}`);
       return;
     }
+    if (cmd.mode === "features") {
+      const ad = await navigator.gpu.requestAdapter();
+      L("adapter features: " + [...ad.features].join(", "));
+      L("device features: " + [...eng.device.features].join(", "));
+      return;
+    }
     if (cmd.mode === "logits") {
       const g = goldens.prompts[0];
       let pos = 0;

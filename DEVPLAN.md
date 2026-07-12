@@ -361,3 +361,29 @@ llama.cpp rebuild and all downloads.
 Status vs targets: best 87.2 / must-beat 112.5 (78%). Ranked remaining:
 downExps 183 GB/s (short rows), dense-down 172 GB/s (small dispatch),
 ~12 fences/layer ≈ 2.2 ms gap, lm_head 388 GB/s ceiling-close.
+
+## Analysis: cooperative matrix multiply (subgroup-matrix) — where it does and does not apply
+
+**Availability (measured)**: this Chrome's adapter exposes
+`chromium-experimental-subgroup-matrix` (plus `shader-f16`) under
+--enable-unsafe-webgpu. The API also worked on hesper's own Dawn/Metal
+(DiffusionGemma reg kernels: 39% MFU / 6 TFLOPs on the matrix units).
+
+**Decode (M=1, the tg64 benchmark): does NOT help — wrong regime.**
+Per-token work is ~8 GFLOP against 2.2 GB of weight reads: at 14 TFLOPs f32
+the ALU cost is ~0.6 ms of an 11.5 ms token — decode is DRAM-bound, and matrix
+units raise FLOP throughput, not bandwidth. Worse, subgroup-matrix takes
+f16/f32 operands, so q4_0 weights would need an f16-staged copy — DOUBLING the
+bytes read per token (the hesper-DG f16-predequant recipe paid there precisely
+because diffusion decodes M=277 tokens per step; autoregressive M=1 is the
+opposite regime). The remaining 87→112 gap lives in bandwidth shapes
+(downExps/dense-down), fences, and box-state variance — not FLOPs.
+
+**Where it WILL pay in this repo:**
+1. **Prefill** — currently token-by-token (M=1 loop): a 2000-token prompt costs
+   ~23 s. A GEMM prefill path (M = prompt length) is compute-bound → exactly
+   the subgroup-matrix use case. Not measured by tg64, but required for a
+   usable demo/Space. This is the natural Campaign-2 M6.
+2. Speculative / multi-token decode (M=4–8), if ever.
+3. (Bonus, unrelated to coop-matrix): `shader-f16` enables an f16 KV cache —
+   halves attention cache traffic at long context.
