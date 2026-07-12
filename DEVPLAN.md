@@ -978,3 +978,27 @@ The two-layer thesis held: kernels were developed and gated under Dawn's
 always-on validation in the browser, then crossed to Metal mechanically. The
 same WGSL now ships both a browser engine (95 tok/s, the only WebGPU A4B) and
 a native engine that beats llama.cpp.
+
+## Campaign 3 addendum: prefill on Metal (2026-07-12 23:0x)
+
+Traced the batched-prefill plans too (pre = prompt-shape for the gate, pre512
+= bench shape; the browser's hP→hidden BLIT between passes is not a dispatch
+and had to be re-inserted in the runner — the second and last port trap).
+
+- **GATE3 PASS** — prefill→generation on Metal is token-exact vs goldens.
+- **prefill M=512: 0.93 ms/tok = 1076 tok/s** (GPU 0.93; fastMath makes NO
+  difference — bandwidth/tensor-bound). Browser: 0.99 = 1010. llama.cpp
+  pp512: 1470.
+
+Reading: Metal buys prefill only +6.5% — as predicted, the boundary tax was
+already amortized there (~456 dispatches / 512 tokens ≈ 5 µs/tok). This
+CLEANLY splits the two llama.cpp gaps: decode's 17% gap was ALL dispatch
+boundaries (Metal erased it → +11% SOTA); prefill's remaining 27% gap is
+KERNEL-level (their mature large-M Metal matmuls vs ours) — a future kernel
+campaign, not a platform issue. Full same-day table:
+
+| same box/GGUF/day | decode tg64 | prefill pp512 |
+|---|---|---|
+| browser (WebGPU) | 95.0 tok/s | 1010 tok/s |
+| **Metal runner** | **127.6 (fast) / 119.6 (exact)** | **1076** |
+| llama.cpp Metal | 114.6 | 1470 |

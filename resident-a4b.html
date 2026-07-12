@@ -246,6 +246,15 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
       t.plan = "feed";
       eng.decodeChunk(pos, 1, 0);
       await eng.device.queue.onSubmittedWorkDone();
+      // prefill plans (Campaign 3): a 512-token chunk (bench shape) and the
+      // real prompt-0 prefill (gate shape; grids depend on M)
+      t.plan = "pre512";
+      const ids = g.input_ids;
+      eng.prefill(Array.from({ length: 512 }, (_, i) => ids[i % ids.length]));
+      await eng.device.queue.onSubmittedWorkDone();
+      t.plan = "pre";
+      eng.prefill(g.input_ids);
+      await eng.device.queue.onSubmittedWorkDone();
       t.tracing = false;
       const usedPipes = new Set(t.ops.map((o) => o.pipe));
       const pipes = [];

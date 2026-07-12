@@ -95,7 +95,7 @@ int main(int argc, char** argv) { @autoreleasepool {
          bufs.size(), loaded / 1e9, (nowMs() - t0) / 1000);
 
   // ---- ops per plan; sizes UBO slots indexed by WGSL binding ----
-  std::vector<Op> stepOps, feedOps;
+  std::vector<Op> stepOps, feedOps, preOps, pre512Ops;
   std::unordered_map<int, NSUInteger> bufSize;
   for (NSDictionary* b in mf[@"buffers"]) bufSize[[b[@"id"] intValue]] = [b[@"size"] unsignedIntegerValue];
   for (NSDictionary* o in mf[@"ops"]) {
@@ -110,9 +110,13 @@ int main(int argc, char** argv) { @autoreleasepool {
       // the WGSL binding (field tint_array_length_0_K reads sizes[K/4][K%4])
       if (k < 16) op.sizes[k] = (uint32_t)bufSize[bid];
     }
-    ([o[@"plan"] isEqualToString:@"step"] ? stepOps : feedOps).push_back(op);
+    NSString* pl = o[@"plan"];
+    ([pl isEqualToString:@"step"] ? stepOps :
+     [pl isEqualToString:@"feed"] ? feedOps :
+     [pl isEqualToString:@"pre"] ? preOps : pre512Ops).push_back(op);
   }
-  printf("[runner] step=%lu feed=%lu ops\n", stepOps.size(), feedOps.size());
+  printf("[runner] step=%lu feed=%lu pre=%lu pre512=%lu ops\n",
+         stepOps.size(), feedOps.size(), preOps.size(), pre512Ops.size());
 
   // semantic buffers from plan structure (engine layout, verified in DEVPLAN):
   // op0 = embed: MSL k4 = params; last op = argmax1: k2 = amax, k0 = logits
@@ -120,6 +124,9 @@ int main(int argc, char** argv) { @autoreleasepool {
   int stepParams = findK(stepOps.front(), 4);
   int feedParams = findK(feedOps.front(), 4);
   int amaxId = findK(stepOps.back(), 2);
+  // prefill plan op0 = embedB (q6k BATCH=1): k4 = paramsPre, k5 = tokPre
+  int preParams = preOps.empty() ? -1 : findK(preOps.front(), 4);
+  int preTok = preOps.empty() ? -1 : findK(preOps.front(), 5);
   printf("[runner] params(step)=%d params(feed)=%d amax=%d\n", stepParams, feedParams, amaxId);
 
   auto encodePlan = [&](id<MTLComputeCommandEncoder> enc, std::vector<Op>& ops,
@@ -242,6 +249,73 @@ int main(int argc, char** argv) { @autoreleasepool {
       double gpu = (cb.GPUEndTime - cb.GPUStartTime) * 1000;
       printf("[bench]%s %d tokens: wall %.2f ms/tok (%.1f tok/s), GPU %.2f ms/tok\n",
              warm ? "" : " (warmup)", nTok, wall / nTok, 1000 / (wall / nTok), gpu / nTok);
+    }
+    return 0;
+  }
+  // prefill plan executor: the browser's hP→hidden blit between the layer
+  // pass and the final (rmsF32/lmHead/argmax) pass is NOT a dispatch and so
+  // is absent from the trace — re-insert it (last 4 ops = the final pass).
+  auto runPre = [&](std::vector<Op>& ops, uint32_t M) {
+    size_t n = ops.size();
+    int hpId = findK(ops[n - 5], 6);          // last a4btail hOut = A.hP (k6)
+    int hiddenId2 = findK(ops[n - 4], 0);     // rmsF32 x = A.hidden (k0)
+    id<MTLCommandBuffer> cb = [queue commandBuffer];
+    id<MTLComputeCommandEncoder> enc =
+      [cb computeCommandEncoderWithDispatchType:MTLDispatchTypeSerial];
+    std::vector<Op> body(ops.begin(), ops.end() - 4), tail(ops.end() - 4, ops.end());
+    encodePlan(enc, body, -1, nil);
+    [enc endEncoding];
+    id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+    [blit copyFromBuffer:bufs[hpId] sourceOffset:(M - 1) * 2816 * 4
+          toBuffer:bufs[hiddenId2] destinationOffset:0 size:2816 * 4];
+    [blit endEncoding];
+    enc = [cb computeCommandEncoderWithDispatchType:MTLDispatchTypeSerial];
+    encodePlan(enc, tail, -1, nil);
+    [enc endEncoding];
+    [cb commit];
+    [cb waitUntilCompleted];
+    if (cb.error) { fprintf(stderr, "CB ERROR: %s\n", cb.error.description.UTF8String); exit(3); }
+    return (cb.GPUEndTime - cb.GPUStartTime) * 1000;
+  };
+  if (mode == "gate3") {
+    // prefill(prompt0) via the traced pre plan, then feed-plan generation
+    NSDictionary* g = goldens[@"prompts"][0];
+    NSArray* in = g[@"input_ids"];
+    uint32_t M = (uint32_t)in.count;
+    uint32_t pv[4] = {0, M, 0, 0};
+    memcpy(bufs[preParams].contents, pv, 16);
+    uint32_t* tp = (uint32_t*)bufs[preTok].contents;
+    for (uint32_t i = 0; i < M; i++) tp[i] = [in[i] unsignedIntValue];
+    runPre(preOps, M);
+    std::vector<uint32_t> out;
+    out.push_back(amaxTok());
+    uint32_t pos = M;
+    while ((int)out.size() < nTok && out.back() != 106 && out.back() != 1) {
+      runToken(feedOps, pos++, 0, feedParams);
+      out.push_back(amaxTok());
+    }
+    NSArray* want = g[@"generated_ids"];
+    bool match = true;
+    for (int i = 0; i < (int)out.size() && i < nTok; i++)
+      if (i >= (int)want.count || out[i] != [want[i] unsignedIntValue]) { match = false; break; }
+    printf("[gate3] %s got=[", match ? "MATCH" : "MISMATCH");
+    for (auto t : out) printf("%u,", t);
+    printf("]\nGATE3 %s\n", match ? "PASS" : "FAIL");
+    return match ? 0 : 2;
+  }
+  if (mode == "prebench") {
+    // 512-token batched prefill (traced grids are M=512-shaped)
+    NSArray* in = ((NSDictionary*)goldens[@"prompts"][0])[@"input_ids"];
+    uint32_t pv[4] = {0, 512, 0, 0};
+    memcpy(bufs[preParams].contents, pv, 16);
+    uint32_t* tp = (uint32_t*)bufs[preTok].contents;
+    for (uint32_t i = 0; i < 512; i++) tp[i] = [in[i % in.count] unsignedIntValue];
+    for (int r = 0; r < 4; r++) {
+      double t1 = nowMs();
+      double gpu = runPre(pre512Ops, 512);
+      double wall = nowMs() - t1;
+      printf("[prebench]%s M=512: %.1f ms = %.2f ms/tok (%.0f tok/s), GPU %.2f ms/tok\n",
+             r ? "" : " (warmup)", wall, wall / 512, 512000 / wall, gpu / 512);
     }
     return 0;
   }
