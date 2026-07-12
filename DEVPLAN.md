@@ -886,3 +886,56 @@ Q6_K lm_head → int4/int2 behind the quality gate (~15–20% class); (2)
 speculative/multi-token decoding to take lm_head off the feedback critical
 path (the 125-vs-94 tok/s measurement); (3) upstream Dawn boundary-cost
 reduction (outside our control).
+
+# Campaign 3: the Metal port — a decisive test of the boundary-tax post-mortem
+# (M0 begun 2026-07-12 ~20:30)
+
+**Question**: Campaign 2's post-mortem attributes the A4B decode gap (10.52 vs
+kernel-sum 8.36 ms) to the WebGPU dispatch-boundary tax. If true, the SAME
+kernels behind a Metal serial compute encoder should recover most of the
+2.1 ms — and pass llama.cpp. If false, we learn what else differs. Either way
+the post-mortem becomes a tested claim instead of an attribution.
+
+**Two-layer design (TAT preserved)**: kernels stay WGSL and keep being
+developed/gated in the browser (Dawn's always-on validation + seconds
+hot-reload); the Metal runner consumes them mechanically: WGSL --(param
+substitution)--> tint --> MSL --(runtime `newLibraryWithSource`)--> PSOs. So
+kernels remain DATA on both targets. Weights: a node script reuses gguf.js +
+the engine's repack functions to dump the repacked planes once; the runner
+mmaps them (load should beat the browser's ~30 s). Foundation already in
+tree: `hesper/tools/replay/webml/` (convert.py: tint + binding maps +
+workgroup sizes from WGSL; replayer.mm: MSL compile + serial/concurrent
+encoding + GPU wall timing) — the runner is an evolution of replayer.mm with
+real weights, real params, the real per-token dispatch plan, and the golden
+gate.
+
+**Pre-registered predictions:**
+- **P8 (the decisive one)**: Metal runner, same kernels, serial encoder, one
+  command buffer per token: decode wall ≤ **9.0 ms/token** (≥111 tok/s) —
+  i.e. the ~2.1 ms boundary tax mostly vanishes (Metal per-dispatch cost
+  ~sub-µs class × ~310).
+- **P9**: it BEATS llama.cpp Metal (8.89 ms / 112.51 tok/s) on the same box →
+  A4B decode SOTA. (Medium confidence: 8.36 kernel-sum + ~0.3-0.5 ms Metal
+  overheads ≈ 8.7-8.9 — this one can go either way; P8 is the hypothesis
+  test, P9 is the stretch.)
+- **P10**: author time — plane-dump + tint pipeline + runner bring-up to
+  GATE-exact greedy tokens in ≤ 1 focused leg (~3 h), because every risky
+  ingredient already exists in tree.
+- **Failure interpretations, pre-committed**: wall ≥ 9.5 ms with a serial
+  encoder ⇒ the boundary-tax attribution was wrong or incomplete → profile
+  cross-command-buffer gaps and Metal hazard tracking before touching
+  kernels. Gate mismatch ⇒ suspect tint MSL vs Dawn MSL divergence (FMA
+  contraction class) — diff per-kernel outputs against the browser.
+
+**Known risks (M0 due diligence):** (1) tint CLI must compile our
+`chromium_experimental_subgroup_matrix` kernels to MSL simdgroup ops — the
+/tmp tint build was wiped; rebuilding from `.lake/build/dawn-src` (same Dawn
+as Chrome's era, so support expected; if not: hand-translate the 3
+subgroup-matrix kernels — mechanical). (2) Metal has no uniformity analysis —
+kernels keep their browser gate as the source of truth. (3) f16 KV caches and
+buffer>4 GB limits are non-issues (14.4 GB across many buffers; Metal buffer
+cap is fine at our sizes).
+
+**Milestones**: M0 this pre-registration (★) → M1 dump+convert pipeline →
+M2 runner bring-up to gate → M3 measure vs P8/P9 (+ quick prefill number) →
+M4 record in DEVPLAN + report §8 addendum.
