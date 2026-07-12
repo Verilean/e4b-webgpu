@@ -38,14 +38,16 @@ fn scaleOf(base: u32, b: u32) -> f32 {
   return select(two.x, two.y, (i & 1u) == 1u);
 }
 
-@compute @workgroup_size(32)
-fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
-  let o0 = (wid.y * 32768u + wid.x) * 2u;
-  if (o0 >= ${OUT}u) { return; }
+@compute @workgroup_size(64)
+fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid3: vec3<u32>) {
+  let sg = lid3.x / 32u;
+  let lid = vec3<u32>(lid3.x % 32u, 0u, 0u);
+  let o0 = ((wid.y * 32768u + wid.x) * 2u + sg) * 2u;
+  let valid = o0 < ${OUT}u;
   let rowB = ${IN}u / 32u;
   var acc0: f32 = 0.0;
   var acc1: f32 = 0.0;
-  for (var k: u32 = 0u; k < ${K}u; k = k + 1u) {
+  for (var k: u32 = 0u; k < select(0u, ${K}u, valid); k = k + 1u) {
     let eb = topk[k] * (${OUT}u * rowB);
     let xoff = k * (${IN}u / 4u);
     let b0 = eb + o0 * rowB;
@@ -63,6 +65,6 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   }
   let t0 = subgroupAdd(acc0);
   let t1 = subgroupAdd(acc1);
-  if (lid.x == 0u) { y[o0] = t0; }
-  if (lid.x == 1u && o0 + 1u < ${OUT}u) { y[o0 + 1u] = t1; }
+  if (valid && lid.x == 0u) { y[o0] = t0; }
+  if (valid && lid.x == 1u && o0 + 1u < ${OUT}u) { y[o0 + 1u] = t1; }
 }

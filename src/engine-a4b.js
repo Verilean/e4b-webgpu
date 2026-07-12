@@ -226,7 +226,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     for (const l of layers) {
     const ra = l.isSliding ? l.headDim / 2 : Math.floor(0.25 * l.headDim / 2);
     const theta = l.isSliding ? "10000.0" : "1000000.0";
-    l.qkvMv = await mv(C.hidden, l.qkvRows);
+    l.qkvMv = await mv(C.hidden, l.qkvRows, { wg: 64 });
     l.oMv = await mv(l.qOut, C.hidden);
     l.guMv = await K.pipeline("q40gu", { IN: C.hidden, FF: C.inter, E: C.nExperts, K: KEXP, EXPERT: 0 });
     l.downMv = await mv(C.inter, C.hidden);
@@ -272,7 +272,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   function encodeLayer(run, l, P) {
     // attention (layer 0 norms here; later layers get A.normed from the prev tail)
     if (l.i === 0) run(kern.rms, [A.hidden, l.attnNorm, A.normed, A.dummySums], 1);
-    run(l.qkvMv, [A.normed, l.qkvCat.nibBuf, l.qkvCat.scBuf, A.topkIdx, A.qkv], wg(l.qkvRows, 2));
+    run(l.qkvMv, [A.normed, l.qkvCat.nibBuf, l.qkvCat.scBuf, A.topkIdx, A.qkv], wg(l.qkvRows, 4));
     run(l.headprep, [A.qkv, l.qNorm, l.kNorm, P, l.kCache, l.vCache, A.dummySumI],
         C.qHeads + 2 * l.kvHeads);
     run(l.attn, [A.qkv, l.kCache, l.vCache, P, A.attnOut], [C.qHeads, 1]);
@@ -287,7 +287,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     run(l.guExpsMv, [A.moeOut, l.guExps.nibBuf, l.guExps.scBuf, A.topkIdx, A.gegluSlots],
         [wg(C.expInter, 4), 1, KEXP]);
     run(l.downExpsMv, [A.gegluSlots, l.downExps.nibBuf, l.downExps.scBuf, A.topkIdx, A.topkW,
-        A.moeOut], wg(C.hidden, 2));
+        A.moeOut], wg(C.hidden, 4));
     // fused tail: postFfw1/2 + add + post norm + residual + scalar (+ next norm)
     const nx = layers[l.i + 1];
     run(l.tail, [A.tmp, l.postFfw1, A.moeOut, l.postFfw2, l.postFfw, A.hidden,
