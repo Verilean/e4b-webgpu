@@ -497,3 +497,17 @@ Status: 94.1 best / must-beat 112.5 (84%). The kernel side is done to within
   10.56 = 94.7 tok/s (84%). The ~2.1 ms delta is GPU dispatch-boundary cost
   (~300 boundaries) — the §8 model; kernels are done to ~0.2 ms of ceiling.
   Next honest step: a genuinely idle-box wall (overnight window), then M5.
+
+## Campaign 2 — measurement embargo + nightrun (2026-07-09 evening)
+
+GPU contention discovered as the LAST noise channel: WindowServer (display
+compositing, 39% CPU) shares the GPU — under it even the serialized-profile
+totals inflate (8.40 → 9.4-9.6 ms). With CPU contention already defeated by
+plan-replay, the remaining variance is display-GPU sharing: NO metric is
+trustworthy while the user works the machine. feedTok folded into the embed
+(TOKSRC template, gate-verified) — its measurement awaits the quiet window.
+
+**nightrun.sh armed**: polls every 30 s for load<0.8 AND WindowServer<5%, then
+runs the full protocol (fresh resident, warmup, 3 walls, profile, gate) into
+harness/night.log. Best defensible numbers so far: profile 8.40 ms, wall 10.56
+= 94.7 tok/s (llama.cpp 8.89 / 112.5).
