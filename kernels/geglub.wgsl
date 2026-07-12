@@ -1,14 +1,15 @@
 enable f16;
-// Batched geglu epilogue for the dense GEMM path: gu = [M][gate(N)|up(N)] f32
-// (q40sg over the guCat concat); yh[tok*N + j] = gelu_tanh(gate) * up, f16.
-// Same gelu expression as q40gu (bit-matching epilogue). Params: N, WG
+// Batched geglu epilogue: gu = [rows][gate(N)|up(N)] f32; yh[row*N + j] =
+// gelu_tanh(gate) * up, f16. rows = M·KMUL (KMUL=1: dense per token; KMUL=K:
+// per (token,slot) entry for the grouped MoE GEMM). Same gelu expression as
+// q40gu (bit-matching epilogue). Params: N, KMUL, WG
 @group(0) @binding(0) var<storage, read> gu: array<f32>;
 @group(0) @binding(1) var<storage, read> mprm: array<u32>;      // [1]=M
 @group(0) @binding(2) var<storage, read_write> yh: array<f16>;
 @compute @workgroup_size(${WG})
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let i = gid.x;
-  if (i >= mprm[1] * ${N}u) { return; }
+  if (i >= mprm[1] * ${KMUL}u * ${N}u) { return; }
   let tok = i / ${N}u;
   let j = i % ${N}u;
   let g = gu[tok * 2u * ${N}u + j];

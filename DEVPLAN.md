@@ -777,3 +777,42 @@ per entry → `[M·K][2·FF]` scratch; geglu pairing done by a `geglub` variant
 **Predictions**: grouped gate/up 70 → **≤45 ms**; prefill M=64 2.35 →
 **≤2.0 ms/tok**; gate2 PASS (accumulation-order change, tolerated by every
 GEMM swap so far). If it lands, same treatment is a candidate for down.
+
+## P6c/P6d result (2026-07-12): the MoE answer — selection is 1-2%, SHAPE and
+## GRANULARITY are the wall, and fixing them tripled prefill again
+
+User question that drove this leg: "is expert selection the MoE bottleneck?"
+Measured answer: **no** (routertop 2.2 ms + expgroup <1 ms ≈ 1-2%); and it is
+not JS either (JS only records dispatches). The wall was the expert matmul
+shape × routing granularity, proven constructively:
+
+- **P6c (MC=8 chunk GEMM, `q40gusg`)**: gate/up 70 → 60 ms at M=64 (prediction
+  ≤45 **MISSED**), and REGRESSED M=20 (3.47 → 4.19) — at top-8/128 routing,
+  n_e = M·K/E entries per expert ≈ 4 at M=64, so the 8-row tensor tiles ran
+  half-empty. Kept behind an M ≥ 32 threshold. The MISS localized the real
+  variable: **chunk fill, i.e. M**.
+- **GEMM grouped-down (`q40downsg` + `wacc`)**: the scalar grouped-down that
+  failed at M=64 (43.5 vs 41.3) WINS as a GEMM once chunks fill: down 321 →
+  144 ms at M=512; also helped M=64 (2.28 → 2.09 ms/tok).
+- **P6d (MC=32 chunks, `q40grpsg32`, one kernel for gate|up and down via
+  ENTROW)**: at M=512 each expert's weights are read ~once per layer —
+  gate/up 284 → **153 ms**, down 144 → **77 ms**.
+- **MPRE 64 → 512** (prefill chunk size; ~150 MB extra activations) so large
+  prompts actually reach the filled-chunk regime.
+
+**Prefill ladder (batched, best-of-3, same box):**
+| M | P5 | +P6a | +P6b | +P6c/d | tok/s |
+|---|---|---|---|---|---|
+| 20 | 3.62 | 3.54 | 3.47 | 3.47 | 288 |
+| 64 | 3.69 | 2.69 | 2.35 | **2.09** | 478 |
+| 512 | — | — | — | **0.99** | **1010** |
+
+vs llama.cpp (same GGUF/box): pp64 626 tok/s → ours 76%; pp512 1470 → ours
+**69%**. Gates: GATE PASS + GATE2 PASS after every step. Decode untouched
+(10.6 ms wall today, profile 8.46 ≈ baseline 8.36).
+
+Decode-side answer (same session): tokenwise prefill runs 8.0 ms/tok = 125
+tok/s with the IDENTICAL per-token dispatch list, because token t's lm_head
+(1.25 ms serialized) overlaps token t+1's layers when tokens are known; decode
+pays it serially through the amax→embed feedback = 10.6 ms = 94 tok/s. The
+125→94 gap is the price of autoregression, not a MoE or JS inefficiency.

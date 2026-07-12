@@ -225,7 +225,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     dummySumI: alloc(device, 16),
   };
   // ---- batched-prefill activation set (M6/P5): MPRE-token chunks ----
-  const MPRE = 64;
+  const MPRE = 512;   // prefill chunk size (buffers ~150MB; n_e per expert grows with M so the grouped GEMM tiles fill)
   const maxQkv = Math.max(...layers.map((l) => l.qkvRows));
   Object.assign(A, {
     tokPre: alloc(device, MPRE * 4),
@@ -247,11 +247,14 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     topkIdxP: alloc(device, MPRE * KEXP * 4),
     topkWP: alloc(device, MPRE * KEXP * 4),
     chunkExp: alloc(device, (C.nExperts + Math.ceil(MPRE * KEXP / 8)) * 4),
-    chunkEnt: alloc(device, (C.nExperts + Math.ceil(MPRE * KEXP / 8)) * 8 * 4),
+    chunkEnt: alloc(device, Math.max((C.nExperts + Math.ceil(MPRE * KEXP / 8)) * 8,
+      (C.nExperts + Math.ceil(MPRE * KEXP / 32)) * 32) * 4),
     guRawP: alloc(device, MPRE * 2 * C.inter * 4),      // dense gate|up GEMM out
+    guSlotsRawP: alloc(device, MPRE * KEXP * 2 * C.expInter * 4),  // grouped MoE GEMM out
     downSlotsP: alloc(device, MPRE * KEXP * C.hidden * 4),
   });
   const CMAX = C.nExperts + Math.ceil(MPRE * KEXP / 8);   // worst-case chunk count
+  const CMAX32 = C.nExperts + Math.ceil(MPRE * KEXP / 32);
 
   // ---- pipelines (re-callable: kernel hot-reload without reloading weights) ----
   const kern = {};
@@ -282,7 +285,9 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     argmax1: await K.pipeline("argmax2", { N: C.vocab, PARTS: 256, STAGE: 1, WG: 256 }),
     feedTok: await K.pipeline("feedtok", {}),
     expGroup: await K.pipeline("expgroup", { K: KEXP, MC: 8, E: C.nExperts, CMAX, WG: 256 }),
-    gegluB: await K.pipeline("geglub", { N: C.inter, WG: 256 }),
+    expGroup32: await K.pipeline("expgroup", { K: KEXP, MC: 32, E: C.nExperts, CMAX: CMAX32, WG: 256 }),
+    gegluB: await K.pipeline("geglub", { N: C.inter, KMUL: 1, WG: 256 }),
+    gegluSlotsB: await K.pipeline("geglub", { N: C.expInter, KMUL: KEXP, WG: 256 }),
     waccB: await K.pipeline("wacc", { H: C.hidden, K: KEXP, WG: 256 }),
     });
     for (const l of layers) {
@@ -311,6 +316,10 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       l.oSg = await K.pipeline("q40sg", { IN: l.qOut, OUT: C.hidden, TPREC: "f32" });
       l.downSg = await K.pipeline("q40sg", { IN: C.inter, OUT: C.hidden, TPREC: "f32" });
       l.guSg = await K.pipeline("q40sg", { IN: C.hidden, OUT: 2 * C.inter, TPREC: "f32" });
+      l.guGsg = await K.pipeline("q40gusg", { IN: C.hidden, FF: C.expInter, K: KEXP, MC: 8, TPREC: "f32" });
+      l.downGsg = await K.pipeline("q40downsg", { IN: C.expInter, OUT: C.hidden, K: KEXP, MC: 8, TPREC: "f32" });
+      l.guGsg32 = await K.pipeline("q40grpsg32", { IN: C.hidden, OUT: 2 * C.expInter, K: KEXP, ENTROW: 0, TPREC: "f32" });
+      l.downGsg32 = await K.pipeline("q40grpsg32", { IN: C.expInter, OUT: C.hidden, K: KEXP, ENTROW: 1, TPREC: "f32" });
     }
     l.guAllB = await K.pipeline("q40gu", { IN: C.hidden, FF: C.expInter, FF2: C.inter,
       E: C.nExperts, K: KEXP, EXPERT: 2, BATCH: 1 });
@@ -418,8 +427,10 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     } else {
       // P6b: group the M×K slot draws by expert, then read each touched
       // expert's gate/up weights once per 8-entry chunk instead of per token
-      const cw = Math.min(M * KEXP, C.nExperts + Math.ceil(M * KEXP / 8));
-      run(kern.expGroup, [A.topkIdxP, A.paramsPre, A.chunkExp, A.chunkEnt], 1);
+      const big = M >= 256 && !!l.guGsg32;   // MC=32 chunks: expert weights read ~once
+      const cw = big ? Math.min(M * KEXP, C.nExperts + Math.ceil(M * KEXP / 32))
+                     : Math.min(M * KEXP, C.nExperts + Math.ceil(M * KEXP / 8));
+      run(big ? kern.expGroup32 : kern.expGroup, [A.topkIdxP, A.paramsPre, A.chunkExp, A.chunkEnt], 1);
       if (l.guSg) {                        // dense gate|up as GEMM + geglu epilogue
         run(l.guSg, [A.normedP, l.guCat.nibBuf, l.guCat.scBuf, A.paramsPre, A.guRawP],
             [2 * C.inter / 64, mt]);
@@ -429,18 +440,41 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
             A.gegluSlotsP, A.normedP, l.guCat.nibBuf, l.guCat.scBuf, A.gegluP],
             [wg(C.inter, 4), 1, M]);
       }
-      run(l.guGrp, [A.moeInP, l.guExps.nibBuf, l.guExps.scBuf, A.chunkExp, A.chunkEnt,
-          A.gegluSlotsP], [wg(C.expInter, 4), 1, cw]);
+      if (big) {
+        run(l.guGsg32, [A.moeInP, l.guExps.nibBuf, l.guExps.scBuf, A.chunkExp, A.chunkEnt,
+            A.guSlotsRawP], [2 * C.expInter / 64, 1, cw]);
+        run(kern.gegluSlotsB, [A.guSlotsRawP, A.paramsPre, A.gegluSlotsP],
+            wg(M * KEXP * C.expInter, 256));
+      } else if (l.guGsg && M >= 32) {     // P6c GEMM pays only when chunks fill
+        run(l.guGsg, [A.moeInP, l.guExps.nibBuf, l.guExps.scBuf, A.chunkExp, A.chunkEnt,
+            A.guSlotsRawP], [2 * C.expInter / 128, 1, cw]);
+        run(kern.gegluSlotsB, [A.guSlotsRawP, A.paramsPre, A.gegluSlotsP],
+            wg(M * KEXP * C.expInter, 256));
+      } else {
+        run(l.guGrp, [A.moeInP, l.guExps.nibBuf, l.guExps.scBuf, A.chunkExp, A.chunkEnt,
+            A.gegluSlotsP], [wg(C.expInter, 4), 1, cw]);
+      }
     }
     if (l.downSg) run(l.downSg, [A.gegluP, l.down.nibBuf, l.down.scBuf, A.paramsPre, A.tmpP],
         [C.hidden / 64, mt]);
     else run(l.downMm, [A.dumX, l.down.nibBuf, l.down.scBuf, A.paramsPre, A.tmpP, A.gegluP],
         [wg(C.hidden, 2), 1, zc]);
-    // grouped-down REJECTED with data (43.5-49.6ms vs 41.3 per-token: IN=704 is
-    // latency-bound at chunk granularity; the per-token kernel is already
-    // cache-grouped since only ~124 unique experts exist per layer)
-    run(l.downExpsMvB, [A.gegluSlotsP, l.downExps.nibBuf, l.downExps.scBuf, A.topkIdxP, A.topkWP,
-        A.moeOutP], [wg(C.hidden, 4), 1, M]);
+    // scalar grouped-down REJECTED at small M (43.5 vs 41.3); the GEMM-shaped
+    // grouped-down pays once chunks fill (M>=32: n_e = M*K/E entries/expert)
+    if (l.downGsg32 && M >= 256 && !GRP_OFF) {
+      const cw2 = Math.min(M * KEXP, C.nExperts + Math.ceil(M * KEXP / 32));
+      run(l.downGsg32, [A.gegluSlotsP, l.downExps.nibBuf, l.downExps.scBuf, A.chunkExp, A.chunkEnt,
+          A.downSlotsP], [C.hidden / 64, 1, cw2]);
+      run(kern.waccB, [A.downSlotsP, A.topkWP, A.paramsPre, A.moeOutP], wg(M * C.hidden, 256));
+    } else if (l.downGsg && M >= 32 && !GRP_OFF) {
+      const cw2 = Math.min(M * KEXP, C.nExperts + Math.ceil(M * KEXP / 8));
+      run(l.downGsg, [A.gegluSlotsP, l.downExps.nibBuf, l.downExps.scBuf, A.chunkExp, A.chunkEnt,
+          A.downSlotsP], [C.hidden / 128, 1, cw2]);
+      run(kern.waccB, [A.downSlotsP, A.topkWP, A.paramsPre, A.moeOutP], wg(M * C.hidden, 256));
+    } else {
+      run(l.downExpsMvB, [A.gegluSlotsP, l.downExps.nibBuf, l.downExps.scBuf, A.topkIdxP, A.topkWP,
+          A.moeOutP], [wg(C.hidden, 4), 1, M]);
+    }
     const nx = layers[l.i + 1];
     run(l.tailB, [A.tmpP, l.postFfw1, A.moeOutP, l.postFfw2, l.postFfw, A.hPB,
         nx ? nx.attnNorm : l.attnNorm, A.normedP, A.hP], M);
