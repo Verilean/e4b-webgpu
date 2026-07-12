@@ -888,7 +888,7 @@ path (the 125-vs-94 tok/s measurement); (3) upstream Dawn boundary-cost
 reduction (outside our control).
 
 # Campaign 3: the Metal port — a decisive test of the boundary-tax post-mortem
-# (M0 begun 2026-07-12 ~20:30)
+# (M0 begun 2026-07-12 22:11)
 
 **Question**: Campaign 2's post-mortem attributes the A4B decode gap (10.52 vs
 kernel-sum 8.36 ms) to the WebGPU dispatch-boundary tax. If true, the SAME
