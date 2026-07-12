@@ -849,3 +849,40 @@ Survey of the rest: webml = E2B only (M1/P1), WebLLM/MLC = no gemma4
 WebGPU implementation of gemma-4-26B-A4B.** The only meaningful performance
 references remain native: llama.cpp Metal (decode 112.5 → ours 84.4%; pp512
 1470 → ours 69%) and the webml E2B engine as a method/architecture reference.
+
+## Post-mortem: why E4B reached SOTA and A4B did not (unified analysis, 2026-07-12)
+
+Question (user): E2B/E4B hit SOTA-class speed, 26B-A4B stalled at 84.4% — why?
+Context length? Experiment TAT?
+
+**Rejected hypotheses first:**
+- *Context length*: not a factor — both campaigns measure tg64 short-context
+  decode; A4B attention is ~1 ms of the 8.4 ms profile.
+- *Experiment TAT*: secondary at most. A4B iterations were heavier (14.4 GB
+  loads, 30 s tab restarts vs 3.4 GB), but the campaign did not run out of
+  levers — the lever list was exhausted WITH rejection data (k08 +40–50%,
+  RMW-free chain, fusion variants), and the residual gap was *identified*,
+  not left unexplained.
+
+**The two stacked causes:**
+1. **The E4B "SOTA" was substantially a format win.** QAT-mobile gave us 28%
+   fewer bytes/token than llama.cpp's q4_0 GGUF (int2 lm_head 168 MB vs Q6_K
+   551 MB). Per effective byte llama.cpp was faster on BOTH models (E4B 275
+   vs 260 GB/s; A4B 268 vs 225). A4B has no QAT-mobile → same file → the
+   engine-only race exposed a deficit that E4B's byte advantage had masked.
+2. **The deficit is the WebGPU dispatch-boundary tax, and the MoE graph shape
+   amplifies it.** A4B decode kernel-sum 8.36 ms < llama.cpp wall 8.89 ms —
+   per-kernel we are competitive — but ~310 boundaries × 5–7 µs (fencetest
+   laws) ≈ 2.1 ms puts the wall at 10.5. Metal-direct llama.cpp barely pays
+   this. MoE adds fine-grained dependent chains (router → top-8 → experts →
+   combine) per layer that a dense model doesn't have, and the standard
+   escape (fusion) is blocked on Dawn/Metal by the measured atomic-path
+   pathology (k08). Proof the kernels are fine: prefill amortizes boundaries
+   over M tokens and the same kernels reach 1010 tok/s (69% of llama.cpp).
+
+**If A4B decode must win** (in rough order of expected value): (1) the E4B
+playbook — a self-repacked tighter format, starting with the ~0.6 GB/token
+Q6_K lm_head → int4/int2 behind the quality gate (~15–20% class); (2)
+speculative/multi-token decoding to take lm_head off the feedback critical
+path (the 125-vs-94 tok/s measurement); (3) upstream Dawn boundary-cost
+reduction (outside our control).
