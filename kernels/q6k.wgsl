@@ -4,13 +4,15 @@
 // −32 zero point deferred through per-16-elem x group sums.
 // MODE 0: dequant ONE row (token embedding) × MULT; row = params[2].
 // MODE 1: matvec (lm_head): thread-per-row (TILE=128), x staged in shared, softcap.
-// Params: N (row len), OUT (rows), MODE, TILE(=128), MULT, SOFTCAP
+// Params: N (row len), OUT (rows), MODE, TILE(=128), MULT, SOFTCAP, TOKSRC
+// (TOKSRC=1: MODE-0 row comes from tok[0] (the argmax buffer) instead of params[2])
 enable subgroups;
 @group(0) @binding(0) var<storage, read> ql: array<u32>;
 @group(0) @binding(1) var<storage, read> qh: array<u32>;
 @group(0) @binding(2) var<storage, read> sc: array<u32>;       // 4 i8 per word
 @group(0) @binding(3) var<storage, read> dd: array<f32>;
 @group(0) @binding(4) var<storage, read> params: array<u32>;   // [2]=token (MODE 0)
+@group(0) @binding(7) var<storage, read> tok: array<u32>;      // [0]=token (TOKSRC=1)
 @group(0) @binding(5) var<storage, read> x: array<vec4<f32>>;  // MODE 1 input
 @group(0) @binding(6) var<storage, read_write> y: array<f32>;
 
@@ -25,6 +27,7 @@ fn i8of(word: u32, k: u32) -> f32 {
 fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid3: vec3<u32>) {
   _ = x[0];
   _ = params[0];
+  _ = tok[0];
   let lid = lid3.x;
   let bpr = ${N}u / 256u;
   let qlU = bpr * 32u;
@@ -32,7 +35,7 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   let scU = bpr * 4u;
 
   if (${MODE}u == 0u) {
-    let row = params[2];
+    let row = select(params[2], tok[0], ${TOKSRC}u == 1u);
     let tile = row / ${TILE}u;
     let t = row % ${TILE}u;
     for (var b = lid; b < bpr; b = b + ${TILE}u) {

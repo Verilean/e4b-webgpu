@@ -214,9 +214,11 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       IN, OUT, EXPERT: opts.expert ? 1 : 0, XSLOT: opts.xslot ? 1 : 0, XF16: opts.xf16 ? 1 : 0, WG: opts.wg ?? 32 });
     Object.assign(kern, {
     embed: await K.pipeline("q6k", { N: C.hidden, OUT: C.hidden, MODE: 0, TILE: 128,
-      MULT: Math.sqrt(C.hidden).toFixed(8), SOFTCAP: "0.0" }),
+      MULT: Math.sqrt(C.hidden).toFixed(8), SOFTCAP: "0.0", TOKSRC: 0 }),
+    embedFeed: await K.pipeline("q6k", { N: C.hidden, OUT: C.hidden, MODE: 0, TILE: 128,
+      MULT: Math.sqrt(C.hidden).toFixed(8), SOFTCAP: "0.0", TOKSRC: 1 }),
     lmHead: await K.pipeline("q6k", { N: C.hidden, OUT: C.vocab, MODE: 1, TILE: 128,
-      MULT: "1.0", SOFTCAP: C.softcap.toFixed(1) }),
+      MULT: "1.0", SOFTCAP: C.softcap.toFixed(1), TOKSRC: 0 }),
     rms: await K.pipeline("rmsnorm", { DIM: C.hidden, EPS: C.eps, WITH_SCALE: 1, SUMOUT: 0, F16OUT: 1, WG: 256 }),
     rmsF32: await K.pipeline("rmsnorm", { DIM: C.hidden, EPS: C.eps, WITH_SCALE: 1, SUMOUT: 0, F16OUT: 0, WG: 256 }),
     routerTop: await K.pipeline("routertop", { H: C.hidden, E: C.nExperts, K: KEXP, WG: 64 }),
@@ -304,13 +306,14 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
         nx ? nx.attnNorm : l.attnNorm, A.normed], 1);
   }
 
-  function encodeForward(run, P = A.params) {
-    run(kern.embed, [model.embQl, model.embQh, model.embSc, model.embD, P,
-        A.normed /*unused x*/, A.hidden], 1);
+  function encodeForward(run, P = A.params, decode = false) {
+    run(decode ? kern.embedFeed : kern.embed,
+        [model.embQl, model.embQh, model.embSc, model.embD, P,
+         A.normed /*unused x*/, A.hidden, A.amax], 1);
     for (const l of layers) encodeLayer(run, l, P);
     run(kern.rmsF32, [A.hidden, model.outNorm, A.tmp, A.dummySums, A.normed], 1);
     run(kern.lmHead, [model.embQl, model.embQh, model.embSc, model.embD, P,
-        A.tmp, A.logits], wg2(C.vocab / 128));
+        A.tmp, A.logits, A.amax], wg2(C.vocab / 128));
     run(kern.argmax0, [A.logits, A.amaxPart, A.amax], 256);
     run(kern.argmax1, [A.logits, A.amaxPart, A.amax], 1);
   }
@@ -384,8 +387,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
             const g = Array.isArray(groups) ? groups : [groups];
             plan.push([k.pipeline, bind(k, bufs), g[0], g[1] ?? 1, g[2] ?? 1]);
           };
-          rec(kern.feedTok, [A.amax, P], 1);
-          encodeForward(rec, P);
+          encodeForward(rec, P, true);
           tokenPlans[i] = plan;
         }
         const pass = enc.beginComputePass();
