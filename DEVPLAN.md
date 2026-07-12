@@ -483,3 +483,17 @@ CPU contention (the measurement box runs an interactive session).
 Status: 94.1 best / must-beat 112.5 (84%). The kernel side is done to within
 ~0.3 ms of its ceiling; further gains need either fewer dispatches (arch floor
 ~11/layer reached) or a quiet box for honest walls.
+
+## Campaign 2 — leg 5 (2026-07-09): plan-replay + gu merge — profile 8.40 ms, wall 10.56 = 94.7 tok/s
+
+- **Token-plan record/replay**: each ring slot's ~340-dispatch encode is recorded
+  once and replayed as flat [pipeline, bindGroup, x,y,z] tuples. The per-dispatch
+  JS was ~2 ms under CPU contention — decode walls now stable at ~10.6 ms even
+  on a busy interactive box (was bimodal 10.6/12.5).
+- **gu merged dispatch** (dense z=0 + 8 expert slots z=1..8 in one grid): −0.11 ms.
+- REJECTED with profile data: down+moedown union kernel (+0.17 ms — register
+  pressure of the union body; unlike gu, the two down shapes share no benefit).
+- State: serialized kernel total **8.40 ms** (llama.cpp WALL is 8.89); our wall
+  10.56 = 94.7 tok/s (84%). The ~2.1 ms delta is GPU dispatch-boundary cost
+  (~300 boundaries) — the §8 model; kernels are done to ~0.2 ms of ceiling.
+  Next honest step: a genuinely idle-box wall (overnight window), then M5.

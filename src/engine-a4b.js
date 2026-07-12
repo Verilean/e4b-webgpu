@@ -234,9 +234,11 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     const theta = l.isSliding ? "10000.0" : "1000000.0";
     l.qkvMv = await K.pipeline("q40mv", { IN: C.hidden, OUT: l.qkvRows, EXPERT: 0, XSLOT: 0, XF16: 1, WG: 64 });
     l.oMv = await K.pipeline("q40mv", { IN: l.qOut, OUT: C.hidden, EXPERT: 0, XSLOT: 0, XF16: 1, WG: 32 });
-    l.guMv = await K.pipeline("q40gu", { IN: C.hidden, FF: C.inter, E: C.nExperts, K: KEXP, EXPERT: 0 });
+
+
+    l.guAll = await K.pipeline("q40gu", { IN: C.hidden, FF: C.expInter, FF2: C.inter,
+      E: C.nExperts, K: KEXP, EXPERT: 2 });
     l.downMv = await K.pipeline("q40mv", { IN: C.inter, OUT: C.hidden, EXPERT: 0, XSLOT: 0, XF16: 1, WG: 32 });
-    l.guExpsMv = await K.pipeline("q40gu", { IN: C.hidden, FF: C.expInter, E: C.nExperts, K: KEXP, EXPERT: 1 });
     l.downExpsMv = await K.pipeline("q40moedown", { IN: C.expInter, OUT: C.hidden, K: KEXP });
     l.headprep = await K.pipeline("headprep", { QH: C.qHeads, KVH: l.kvHeads,
       HEAD_DIM: l.headDim, ROPE_ANGLES: ra, THETA: theta, EPS: C.eps,
@@ -290,10 +292,9 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     // dense and MoE branches interleaved: hazard-free neighbors overlap on GPU
     run(kern.routerTop, [A.routerIn, l.routerW, l.pes, A.routerScores, A.routerCtr,
         A.topkIdx, A.topkW], C.nExperts);
-    run(l.guMv, [A.normed, l.guCat.nibBuf, l.guCat.scBuf, A.topkIdx,
-        A.dumY1, A.geglu], wg(C.inter, 4));
-    run(l.guExpsMv, [A.moeIn, l.guExps.nibBuf, l.guExps.scBuf, A.topkIdx,
-        A.dumY2, A.gegluSlots], [wg(C.expInter, 4), 1, KEXP]);
+    run(l.guAll, [A.moeIn, l.guExps.nibBuf, l.guExps.scBuf, A.topkIdx, A.dumY1, A.gegluSlots,
+        A.normed, l.guCat.nibBuf, l.guCat.scBuf, A.geglu],
+        [wg(C.inter, 4), 1, 1 + KEXP]);
     run(l.downMv, [A.dumX, l.down.nibBuf, l.down.scBuf, A.topkIdx, A.tmp, A.geglu], wg(C.hidden, 2));
     run(l.downExpsMv, [A.gegluSlots, l.downExps.nibBuf, l.downExps.scBuf, A.topkIdx, A.topkW,
         A.moeOut], wg(C.hidden, 4));
