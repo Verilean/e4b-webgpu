@@ -667,3 +667,26 @@ GEMM shape of the dense parts (already amortized) but **expert grouping**
 reads shrink ~4× → ≈ 0.25 GB/tok ≈ ~1.2 ms/tok candidate. Subgroup-matrix (k13
 recipe) then matters where compute becomes the wall. Order: group experts
 first, then subgroup-matrix on the grouped GEMMs.
+
+## P6 refined pre-registration (2026-07-12, after the P5 budget)
+
+Prefill M=64 per-class budget (serialized 250 ms): MoE gate/up 96 + MoE down
+41 (= 55%, un-amortized expert bytes) | q40mm matvecs qkv 46+9, o 26+11, dense
+down 15 (= 107 ms, ~0.6 GB read once → ~6.5 GB/s = COMPUTE-bound, the matvec
+shape is the wall) | everything else < 5.
+
+Two levers, pre-registered:
+- **P6a — subgroup-matrix GEMM** (chromium-experimental-subgroup-matrix; on the
+  adapter here) replacing the batched q40mm sites (qkv / o / dense-down):
+  k13-style 32M×64N×32K tiles, JIT-dequant q4_0 → tiles with the block scale
+  folded, f32 accumulate. Predict: the 107 ms class → ≤ 35 ms; prefill M=64
+  3.69 → ≤ 2.7 ms/tok. Correctness bar: gate2 generation still EXACT vs
+  goldens (accumulation-order + one-rounding change; f32 tiles first = weight
+  dequant stays exact, so the only diff vs q40mv is summation order).
+- **P6b — expert grouping (mul_mat_id)**: GPU counting-sort of the M×8 slot
+  draws per layer into per-expert chunks (MC=8 columns), gate/up (and later
+  down) read each touched expert's weights ~once per layer instead of per
+  token. Predict: MoE 138 → ~50 ms at M=64; combined with P6a ≤ 1.6 ms/tok at
+  M=64 (≥ 5× vs tokenwise; ≥ 2.3× vs P5). Gate/up grouping is bit-identical
+  per entry (same jb order); grouped DOWN changes the k-sum order → gate2 may
+  flip near-ties, judged separately.
