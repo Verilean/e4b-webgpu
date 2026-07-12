@@ -759,3 +759,21 @@ as future work, diminishing for this campaign. Decode is untouched: GATE PASS,
 
 Author time M6 leg: ~2.5 h wall (P5 + P6a + P6b + baselines) — P7 (~2-3 h for
 P5) HELD, and the whole of M6 fit in roughly the P5 allotment.
+
+## P6c pre-registration (2026-07-12): chunk-shaped subgroup-matrix MoE GEMM
+
+Q (user): is expert SELECTION the MoE bottleneck? A (from the budget): no —
+routertop 2.2 ms + expgroup <1 ms ≈ 1-2% of prefill. The wall is the expert
+matmul SHAPE: guGrp 70 ms vs ~33 ms byte floor, down 41 vs ~16 — scalar-matvec
+kernels running 2-2.5× above their byte floors. If the shape is the wall, a
+tensor-op GEMM over the SAME chunks should close toward the floor.
+
+**Plan**: `q40gusg.wgsl` — per chunk (grid.z), M-tile = the chunk's ≤8 entries,
+N = the expert's 2·704 gate|up rows (11 strips of 128), K = 2816 (88 q4_0
+block-tiles). WG=128 = 4 subgroups × 4 result mats (8M×32N each). Raw GEMM out
+per entry → `[M·K][2·FF]` scratch; geglu pairing done by a `geglub` variant
+(every (tok,slot) entry is real, so the scratch is fully written).
+
+**Predictions**: grouped gate/up 70 → **≤45 ms**; prefill M=64 2.35 →
+**≤2.0 ms/tok**; gate2 PASS (accumulation-order change, tolerated by every
+GEMM swap so far). If it lands, same treatment is a candidate for down.
