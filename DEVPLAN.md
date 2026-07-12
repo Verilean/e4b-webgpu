@@ -742,3 +742,20 @@ mostly L2/SLC hits). What grouping actually bought was dispatch-shape savings
 kernel-shape/latency-bound, not DRAM-bound; the next lever would be a
 chunk-shaped subgroup-matrix MoE GEMM (8M-tile), diminishing for this
 campaign.
+
+## M6 close-out: prefill 3-way (same GGUF, same box, 2026-07-12)
+
+| engine | pp64 | pp512-class |
+|---|---|---|
+| ours, token-by-token (pre-M6) | 8.0 ms/tok = 125 tok/s | — (M-invariant) |
+| ours, batched (P5+P6a+P6b) | **2.35 ms/tok = 425 tok/s** | ~same (MoE floor is M-invariant; MPRE=64 chunks) |
+| llama.cpp fork 73d820a (Metal) | 1.60 ms/tok = **626 tok/s** | 0.68 ms/tok = **1470 tok/s** |
+
+Batched prefill = 3.4× our own baseline, 68% of llama.cpp at M=64. llama.cpp
+keeps scaling with M (1470 at 512) where our MoE floor is M-invariant — closing
+that gap needs the chunk-shaped subgroup-matrix MoE GEMM (+ MPRE > 64), noted
+as future work, diminishing for this campaign. Decode is untouched: GATE PASS,
+95.0 tok/s quiet-window truth stands.
+
+Author time M6 leg: ~2.5 h wall (P5 + P6a + P6b + baselines) — P7 (~2-3 h for
+P5) HELD, and the whole of M6 fit in roughly the P5 allotment.
