@@ -196,3 +196,58 @@ wants more: gu 2.47ms (445 GB/s in-graph, near the int4 ceiling), attention
 | 2026-07-07 | New minimal repo; scratch engine with webml as reference reading; swap = baseline/oracle + fallback | user; hesper report P2 (context compactness), principle 7 |
 | afternoon | ~2.5 h | M4b: reference-read unlock (native unorm/snorm unpack) → 99.4 tok/s; 2 harness traps documented |
 | evening | ~1.5 h | M4c: SOTA — 124.2 tok/s (webml 123.5, llama.cpp 102.4). Levers: synthetic-test debugging, native unorm everywhere, subgroup reductions, f16 projection |
+
+---
+
+# Campaign 2: gemma-4-26B-A4B (MoE) — same method, second replication
+
+Started 2026-07-08 12:33 (GGUF download kicked off). User: 「次はgemma4 26b a4bで試そうか。
+同様に計測して記録を残しましょう。」
+
+## M0 — recon (verified first-hand) + pre-registered predictions
+
+**Checkpoints**: NO qat-mobile-transformers exists for 26B-A4B → the SRQ format does
+not apply. Available: `google/gemma-4-26B-A4B-it-qat-q4_0-gguf` (14.44 GB, single
+file) and `-qat-q4_0-unquantized` (bf16 ~53 GB). **Decision: load the GGUF q4_0
+DIRECTLY** — bit-identical weights to llama.cpp ⇒ clean cross-engine gate, and with
+f32 activations (no SRQ grids) token-exact agreement with llama.cpp is IN PRINCIPLE
+achievable, unlike Campaign 1.
+
+**Arch (from config + transformers 5.13 modeling_gemma4.py, read first-hand):**
+hidden 2816, 30 layers (full at 5,11,17,23,29), 16 q-heads; sliding: 8 kv-heads ×
+head_dim 256, window 1024, θ=10k; full: 2 kv-heads × 512, proportional RoPE
+(factor 0.25, θ=1M), **k_eq_v: full layers have NO v_proj — V = v_norm(k_proj out)**
+(25% less attn weight read there). No PLE, no KV-sharing, tied embeddings
+(lm_head = embed, q4_0, 262144×2816 ≈ 415 MB/token — the biggest single read).
+Per layer: dense MLP (inter 2112) AND a parallel MoE branch (128 experts, top-8,
+inter 704, fused gate_up [128,1408,2816] + down [128,2816,704]); router input =
+the PRE-norm residual; combine = postFfn1(mlp) + postFfn2(moe), then postFfnNorm,
++res, ×layer_scalar. Router: softmax → top-8 → renormalize → × per_expert_scale.
+
+**Per-token active read (q4_0)**: attn+dense+8 experts+lm_head ≈ **2.2 GB — same as
+E4B** ⇒ at our proven 273 GB/s the physics ceiling is ~120 tok/s.
+
+**Pre-registered predictions (before ANY measurement):**
+- **P1**: the unmodified webml engine FAILS to run 26B-A4B (no mobile checkpoint;
+  no MoE kernels). The swap test is run anyway to record the failure mode.
+- **P2**: llama.cpp llama-bench tg64 (q4_0, this box) lands at **55–80 tok/s**
+  (2.2 GB/token at their ~225 GB/s eff, minus MoE mul_mat_id inefficiency —
+  hesper's DiffusionGemma data point: llama.cpp MoE ran at 27% MFU).
+- **P3**: our engine beats llama.cpp (must); **≥100 tok/s** stretch. Sub-prediction:
+  greedy tokens MATCH llama.cpp token-exactly on ≥1 prompt at n=24 (no SRQ grids).
+- **P4**: author time — oracle-agreeing bring-up ≤ 1 day (GGUF parser + MoE +
+  k_eq_v are new); competitive (P3-must) ≤ 2 days total.
+
+**Method adaptations pre-committed:**
+1. **Resident-tab harness** (the 26B TAT killer identified in §8 discussion):
+   the page stays alive holding 14.4 GB on GPU; the dev server gets a command
+   endpoint; kernels are re-fetched and pipelines rebuilt per iteration — gate
+   and bench runs without weight reloads.
+2. Oracle = llama.cpp greedy tokens (primary) + llama-eval-callback per-layer
+   fingerprints (condition (c)); transformers-CPU oracle is NOT feasible at f32
+   (104 GB) — recorded as a method limit.
+3. q4_0 kernels: block-32 f16 scales → the unorm trick refactors per block:
+   Σ_b d_b·(Σ v·x − 8·Σ_b x) needs per-block activation sums (88 f32 per vector),
+   produced by the norm kernels like Campaign 1's Σq.
+4. Same repo, same gate discipline; E4B gate must STAY green (regression check)
+   behind a model switch.
