@@ -939,3 +939,42 @@ cap is fine at our sizes).
 **Milestones**: M0 this pre-registration (★) → M1 dump+convert pipeline →
 M2 runner bring-up to gate → M3 measure vs P8/P9 (+ quick prefill number) →
 M4 record in DEVPLAN + report §8 addendum.
+
+## Campaign 3 result (2026-07-12 22:36 — M0 22:11, i.e. 25 MINUTES to SOTA)
+
+Pipeline landed exactly as designed: trace shim in the resident harness (2
+plans × 306 ops), 14.57 GB plane dump over localhost, convert.py (tint → MSL +
+binding maps), `metal/runner.mm` (~250 lines: runtime MSL compile = kernels
+stay data, one SERIAL compute encoder per token, GPU-side amax feedback).
+One real bug found and fixed on the way, worth its own line:
+
+- **tint robustness sizes UBO is indexed by the MSL buffer index, NOT the
+  WGSL binding** (`tint_array_length_0_K` reads `sizes[K/4][K%4]` where K is
+  the remapped [[buffer(K)]] slot). Filling it by binding number silently
+  clamps writes (qkv truncated at 1408 elements → the model "ignored" the
+  prompt by attending over the dumped cache). Diagnosed by poison-fill +
+  layer-0 isolation.
+
+**Results (same box, same GGUF, same day, load ~1.7):**
+| | decode tg64 | vs llama.cpp same-day |
+|---|---|---|
+| WebGPU engine (browser) | 10.52 ms = 95.0 tok/s | 83% |
+| llama.cpp Metal (fork 73d820a) | 8.73 ms = 114.55 ± 0.20 | 100% |
+| **Metal runner, fastMath OFF** | **8.36 ms = 119.6 tok/s** (GPU 8.26) | **104%** |
+| **Metal runner, fastMath ON** | **7.83 ms = 127.6 tok/s** (GPU 7.71) | **111%** |
+
+**GATE PASS (token-exact, all 3 prompts) in BOTH math modes.**
+
+**Predictions:** P8 **HIT** — wall 8.36 ≤ 9.0, and it equals the WebGPU
+serialized kernel-sum (8.36) to the digit: the 2.1 ms boundary tax vanished
+entirely under a serial Metal encoder. The post-mortem attribution is now a
+measured fact, not an inference. P9 **HIT** — 119.6 (even before fast math)
+beats llama.cpp same-day 114.6; with fast math (still token-exact) **127.6
+tok/s = A4B decode SOTA on this box, +11%**. P10 **HIT, absurdly** — M0 to
+SOTA in ~25 minutes of wall clock, because every ingredient already existed
+(trace shim pattern, convert.py, Dawn-built tint, goldens, dumped planes).
+
+The two-layer thesis held: kernels were developed and gated under Dawn's
+always-on validation in the browser, then crossed to Metal mechanically. The
+same WGSL now ships both a browser engine (95 tok/s, the only WebGPU A4B) and
+a native engine that beats llama.cpp.

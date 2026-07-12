@@ -35,6 +35,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 f.write(body)
         elif self.path == "/cmd":
             PENDING.append(body.decode())
+        elif self.path == "/trace":
+            os.makedirs(os.path.join(ROOT, "metal", "out"), exist_ok=True)
+            with open(os.path.join(ROOT, "metal", "out", "trace.json"), "wb") as f:
+                f.write(body)
+        elif self.path.startswith("/bin/"):
+            os.makedirs(os.path.join(ROOT, "metal", "bins"), exist_ok=True)
+            name = re.sub(r"[^0-9A-Za-z_.-]", "", self.path[5:])
+            with open(os.path.join(ROOT, "metal", "bins", name + ".bin"), "wb") as f:
+                f.write(body)
         else:
             with open(LOG, "ab") as f:
                 f.write(body + b"\n")

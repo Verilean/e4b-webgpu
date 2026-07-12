@@ -10,3 +10,6 @@ goldens/*.bin
 model/*.gguf
 harness/serve.log
 model-a4b/
+metal/bins/
+metal/out/
+metal/runner
