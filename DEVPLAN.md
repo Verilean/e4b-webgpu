@@ -424,3 +424,19 @@ Remaining: cold-box truth run (morning protocol); kernel-sum floor ≈ 9.4 ms
 means parity with llama.cpp (8.89) also needs ~0.5 ms of kernel wins
 (lm_head 388→460 GB/s, qkv 268→330, moedown LSU shape) — all identified,
 diminishing, honest.
+
+## Campaign 2 — leg 3 close (2026-07-08 late night)
+
+WG-templated q40mv (32/64/128 rows-per-WG shapes; Tint lessons: subgroup-index
+-derived early returns break subgroupAdd uniformity — guard with a `valid` flag
+instead of returning). WG=128 on qkv/o/down measured NEUTRAL (11.24 vs 11.11) —
+kept at WG=32. A transient "104 tok/s" was a silent-edit artifact computing 1/4
+of the rows — caught by the gate, as designed; the ASSERT-your-edit-anchors
+lesson is now burned in twice.
+
+**Box noise reached ±1.5 ms between adjacent identical runs (12.9 vs 11.1 on
+the same binary) — optimization A/B below ~1 ms is impossible tonight.
+Discipline: stop. Next session MUST open with the cold-box protocol run.**
+
+Leg summary: 13.3-band → 11.11 best (moedown, routertop, 16-token submits).
+Serialized kernel floor ≈ 9.4-9.6 ms. llama.cpp 8.89.

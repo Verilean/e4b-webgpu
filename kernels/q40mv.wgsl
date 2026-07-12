@@ -3,7 +3,7 @@
 // block) + f16 scale plane (2 per u32, unpack2x16float). 2-row interleaved
 // subgroup shape (campaign-1 matvec4). EXPERT=1: weight/scale bases offset by
 // topk[wid.z]·stride (MoE slot indirection, no CPU readback).
-// Params: IN, OUT, EXPERT(0/1), XSLOT(0/1: per-slot x offset), WG=32
+// Params: IN, OUT, EXPERT(0/1), XSLOT(0/1: per-slot x offset), WG (32/64/128: WG/16 rows per WG)
 enable subgroups;
 @group(0) @binding(0) var<storage, read> x: array<vec4<f32>>;
 @group(0) @binding(1) var<storage, read> w: array<vec4<u32>>;     // nibble plane
@@ -48,11 +48,14 @@ fn scaleOf(base: u32, b: u32) -> f32 {
   return select(two.x, two.y, (i & 1u) == 1u);
 }
 
-@compute @workgroup_size(32)
-fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+@compute @workgroup_size(${WG})
+fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid3: vec3<u32>) {
   _ = topk[0];                              // keep binding when EXPERT=0 (DCE)
-  let o0 = (wid.y * 32768u + wid.x) * 2u;
-  if (o0 >= ${OUT}u) { return; }
+  let sg = lid3.x / 32u;
+  let lane = lid3.x % 32u;
+  let o0 = ((wid.y * 32768u + wid.x) * (${WG}u / 32u) + sg) * 2u;
+  let valid = o0 < ${OUT}u;                 // no early return: keeps subgroupAdd
+                                            // in (Tint-provable) uniform flow
   let rowB = ${IN}u / 32u;                    // blocks per row
   var eb: u32 = 0u;                           // expert offset in blocks
   var yb: u32 = 0u;                           // output offset
@@ -67,13 +70,15 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   let b1 = b0 + rowB;
   var acc0: f32 = 0.0;
   var acc1: f32 = 0.0;
-  for (var jb = lid.x; jb < rowB; jb = jb + 32u) {
-    let u = unpx(xoff, jb);
-    acc0 = acc0 + scaleOf(b0, jb) * bdot(w[b0 + jb], u);
-    acc1 = acc1 + scaleOf(b1, jb) * bdot(w[b1 + jb], u);
+  if (valid) {
+    for (var jb = lane; jb < rowB; jb = jb + 32u) {
+      let u = unpx(xoff, jb);
+      acc0 = acc0 + scaleOf(b0, jb) * bdot(w[b0 + jb], u);
+      acc1 = acc1 + scaleOf(b1, jb) * bdot(w[b1 + jb], u);
+    }
   }
   let t0 = subgroupAdd(acc0);
   let t1 = subgroupAdd(acc1);
-  if (lid.x == 0u) { y[yb + o0] = t0; }
-  if (lid.x == 1u && o0 + 1u < ${OUT}u) { y[yb + o0 + 1u] = t1; }
+  if (valid && lane == 0u) { y[yb + o0] = t0; }
+  if (valid && lane == 1u && o0 + 1u < ${OUT}u) { y[yb + o0 + 1u] = t1; }
 }

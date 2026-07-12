@@ -206,7 +206,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   async function rebuildPipelines(Knew) {
     const K = Knew ?? new Kernels(device);
     const mv = (IN, OUT, opts = {}) => K.pipeline("q40mv", {
-      IN, OUT, EXPERT: opts.expert ? 1 : 0, XSLOT: opts.xslot ? 1 : 0, WG: 32 });
+      IN, OUT, EXPERT: opts.expert ? 1 : 0, XSLOT: opts.xslot ? 1 : 0, WG: opts.wg ?? 32 });
     Object.assign(kern, {
     embed: await K.pipeline("q6k", { N: C.hidden, OUT: C.hidden, MODE: 0, TILE: 128,
       MULT: Math.sqrt(C.hidden).toFixed(8), SOFTCAP: "0.0" }),
