@@ -816,3 +816,17 @@ tok/s with the IDENTICAL per-token dispatch list, because token t's lm_head
 (1.25 ms serialized) overlaps token t+1's layers when tokens are known; decode
 pays it serially through the amax→embed feedback = 10.6 ms = 94 tok/s. The
 125→94 gap is the price of autoregression, not a MoE or JS inefficiency.
+
+## Pre-registration (2026-07-12 evening): the "existing WebGPU A4B" comparison
+
+Survey result: NO existing WebGPU engine runs gemma-4-26B-A4B — webml is
+E2B-only (M1/P1: cannot take A4B, no mobile checkpoint), WebLLM/MLC has no
+gemma4 support (unknown model type), onnx-community ships only E2B/E4B. The
+ONLY comparable is llama.cpp's own experimental ggml-webgpu backend (the
+gemma4 fork has MUL_MAT_ID + flash-attn + fused rms in WGSL), built against
+hesper's Dawn install, same GGUF, same box.
+
+**Predictions**: the backend is young (no subgroup-matrix, generic WGSL): tg64
+**30–70 tok/s** (below both Metal 112.5 and ours 95); pp512 **300–900 tok/s**
+(below Metal 1470 and ours 1010). If it fails to load/run, that itself is the
+finding (ours would be the only working WebGPU path for this model).
