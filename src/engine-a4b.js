@@ -27,19 +27,37 @@ function repackQ40(buf) {
   }
   return { nib, sc };
 }
-function repackQ6K(buf) {
-  const nb = buf.byteLength / 210;
+// Tile-transposed Q6_K planes (T=128 rows/tile): unit u of row o lives at
+// (tile*unitsPerRow + u)*128 + (o%128) — coalesced across a 128-thread WG.
+// The embed row-gather uses the same indexing. d stored as f32.
+function repackQ6K(buf, rowLen, T = 128) {
+  const bpr = rowLen / 256;                       // blocks per row
+  const rows = buf.byteLength / 210 / bpr;
   const src = new Uint8Array(buf);
-  const ql = new Uint8Array(nb * 128);
-  const qh = new Uint8Array(nb * 64);
-  const sc = new Uint8Array(nb * 16);
-  const d = new Uint16Array(nb + (nb & 1));
-  for (let b = 0; b < nb; b++) {
-    const o = b * 210;
-    ql.set(src.subarray(o, o + 128), b * 128);
-    qh.set(src.subarray(o + 128, o + 192), b * 64);
-    sc.set(src.subarray(o + 192, o + 208), b * 16);
-    d[b] = src[o + 208] | (src[o + 209] << 8);
+  const dv = new DataView(buf);
+  const qlU = bpr * 32, qhU = bpr * 16, scU = bpr * 4;   // u32 units per row
+  const ql = new Uint32Array(rows * qlU);
+  const qh = new Uint32Array(rows * qhU);
+  const sc = new Uint32Array(rows * scU);
+  const d = new Float32Array(rows * bpr);
+  const f16 = (h) => {                             // f16 bits → f32
+    const s2 = (h & 0x8000) ? -1 : 1, e = (h >> 10) & 0x1f, m = h & 0x3ff;
+    if (e === 0) return s2 * m * 2 ** -24;
+    if (e === 31) return m ? NaN : s2 * Infinity;
+    return s2 * (1 + m / 1024) * 2 ** (e - 15);
+  };
+  for (let o = 0; o < rows; o++) {
+    const tile = (o / T) | 0, t = o % T;
+    for (let b = 0; b < bpr; b++) {
+      const off = (o * bpr + b) * 210;
+      for (let u = 0; u < 32; u++)
+        ql[(tile * qlU + b * 32 + u) * T + t] = dv.getUint32(off + u * 4, true);
+      for (let u = 0; u < 16; u++)
+        qh[(tile * qhU + b * 16 + u) * T + t] = dv.getUint32(off + 128 + u * 4, true);
+      for (let u = 0; u < 4; u++)
+        sc[(tile * scU + b * 4 + u) * T + t] = dv.getUint32(off + 192 + u * 4, true);
+      d[(tile * bpr + b) * T + t] = f16(dv.getUint16(off + 208, true));
+    }
   }
   return { ql, qh, sc, d };
 }
@@ -92,7 +110,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   }
 
   L("loading weights (GGUF q4_0 → repacked planes)…");
-  const emb = repackQ6K((await st.fetch("token_embd.weight")).buf);
+  const emb = repackQ6K((await st.fetch("token_embd.weight")).buf, C.hidden);
   const model = {
     embQl: upload(device, emb.ql), embQh: upload(device, emb.qh),
     embSc: upload(device, emb.sc), embD: upload(device, emb.d),
@@ -188,9 +206,9 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     const mv = (IN, OUT, opts = {}) => K.pipeline("q40mv", {
       IN, OUT, EXPERT: opts.expert ? 1 : 0, XSLOT: opts.xslot ? 1 : 0, WG: 32 });
     Object.assign(kern, {
-    embed: await K.pipeline("q6k", { N: C.hidden, OUT: C.hidden, MODE: 0, TILE: 64,
+    embed: await K.pipeline("q6k", { N: C.hidden, OUT: C.hidden, MODE: 0, TILE: 128,
       MULT: Math.sqrt(C.hidden).toFixed(8), SOFTCAP: "0.0" }),
-    lmHead: await K.pipeline("q6k", { N: C.hidden, OUT: C.vocab, MODE: 1, TILE: 64,
+    lmHead: await K.pipeline("q6k", { N: C.hidden, OUT: C.vocab, MODE: 1, TILE: 128,
       MULT: "1.0", SOFTCAP: C.softcap.toFixed(1) }),
     rms: await K.pipeline("rmsnorm", { DIM: C.hidden, EPS: C.eps, WITH_SCALE: 1, SUMOUT: 0, WG: 256 }),
     routerMv: await K.pipeline("matvec2f", { BITS: 32, IN: C.hidden, OUT: C.nExperts, WG: 64, SOFTCAP: "0.0" }),
@@ -219,7 +237,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     l.attn = await K.pipeline("attnf32", { Q_HEADS: C.qHeads, KV_HEADS: l.kvHeads,
       HEAD_DIM: l.headDim, MAXSEQ, WINDOW: l.isSliding ? C.window : 0, DT: 1, WG: 256 });
     l.tail = await K.pipeline("a4btail", { H: C.hidden, K: KEXP, EPS: C.eps,
-      MUL: l.layerScalarVal.toPrecision(9), WG: 256 });
+      MUL: l.layerScalarVal.toPrecision(9), NEXT: l.i + 1 < C.layers ? 1 : 0, WG: 256 });
       l.rmsaccOne = await K.pipeline("rmsacc", { DIM: C.hidden, EPS: C.eps, MUL: "1.0", WG: 256 });
     }
     bgCache.clear();
@@ -251,8 +269,8 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   const wg2 = (rows) => rows <= 32768 ? [rows] : [32768, Math.ceil(rows / 32768)];
 
   function encodeLayer(run, l) {
-    // attention
-    run(kern.rms, [A.hidden, l.attnNorm, A.normed, A.dummySums], 1);
+    // attention (layer 0 norms here; later layers get A.normed from the prev tail)
+    if (l.i === 0) run(kern.rms, [A.hidden, l.attnNorm, A.normed, A.dummySums], 1);
     run(l.qkvMv, [A.normed, l.qkvCat.nibBuf, l.qkvCat.scBuf, A.topkIdx, A.qkv], wg(l.qkvRows, 2));
     run(l.headprep, [A.qkv, l.qNorm, l.kNorm, A.params, l.kCache, l.vCache, A.dummySumI],
         C.qHeads + 2 * l.kvHeads);
@@ -273,7 +291,9 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     run(l.downExpsMv, [A.gegluSlots, l.downExps.nibBuf, l.downExps.scBuf, A.topkIdx, A.downSlots],
         [wg(C.hidden, 2), 1, KEXP]);
     // fused tail: moe-combine + postFfw1/2 + add + post norm + residual + scalar
-    run(l.tail, [A.tmp, l.postFfw1, A.downSlots, A.topkW, l.postFfw2, l.postFfw, A.hidden], 1);
+    const nx = layers[l.i + 1];
+    run(l.tail, [A.tmp, l.postFfw1, A.downSlots, A.topkW, l.postFfw2, l.postFfw, A.hidden,
+        nx ? nx.attnNorm : l.attnNorm, A.normed], 1);
   }
 
   function encodeForward(run) {
@@ -282,7 +302,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     for (const l of layers) encodeLayer(run, l);
     run(kern.rms, [A.hidden, model.outNorm, A.normed, A.dummySums], 1);
     run(kern.lmHead, [model.embQl, model.embQh, model.embSc, model.embD, A.params,
-        A.normed, A.logits], wg2(C.vocab / 64));
+        A.normed, A.logits], wg2(C.vocab / 128));
     run(kern.argmax0, [A.logits, A.amaxPart, A.amax], 256);
     run(kern.argmax1, [A.logits, A.amaxPart, A.amax], 1);
   }

@@ -319,3 +319,27 @@ Current budget (serialized): guExps 1.40 (338 GB/s ✓near-cap), lm_head 2.46
 dense gu 1.05→concat'd, attn 0.38+0.12, top8 0.46 (fence-bound smalls).
 Remaining to must-beat 8.89 ms: lm_head tiling (−1.2), small-op fences,
 downExps short-row shape.
+
+## Campaign 2 — M4 status at end of leg (2026-07-08)
+
+Ladder continued (every step GATE PASS = 3/3 token-exact vs llama.cpp):
+13.4 → 12.65 (lm_head TILE=128) → **11.58 ms = 86.3 tok/s** (Q6_K planes
+TILE-TRANSPOSED at load — 128-row tiles, fully coalesced reads; lm_head
+2.06→1.25 ms = 388 GB/s, same layout serves the embed row-gather — one
+TILE-vs-repack mismatch caught by the gate immediately; + a4btail boundary
+fusion: the layer tail now also emits the NEXT layer's attn-normed input).
+
+REJECTED with data: router2 single-WG fused scores+top8 (one WG reading 1.4 MB
+= latency disaster, 12.65→16.9 ms — same lesson class as campaign 1's 8-acc
+fusion: don't starve the GPU to save a dispatch).
+
+**vs targets: 86.3 / must-beat 112.5 (77%) / stretch ~125.** Remaining levers,
+in order: (1) geglu fused into the gu matvec epilogues (dense + experts,
+campaign-1 matvecgu2 pattern, f32 out = no pack race), (2) downExps short-row
+shape (IN=704 → 22 blocks < 32 lanes: 1/3 idle, 183 GB/s), (3) ~13
+dispatches/layer × ~6 µs fences ≈ 2.3 ms wall-vs-profile gap — more boundary
+fusions, (4) thermal-clean re-measure (box ran hot all afternoon; profile sum
+stayed 9.4 ms while wall wobbled 11.6-14.9).
+
+Author time this leg (M0 12:33 → here): ~3.5 h wall including the 112.5-tok/s
+llama.cpp rebuild and all downloads.

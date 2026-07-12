@@ -13,6 +13,8 @@ enable subgroups;
 @group(0) @binding(4) var<storage, read> w2: array<f32>;       // post_ffw_norm_2
 @group(0) @binding(5) var<storage, read> wp: array<f32>;       // post_ffw_norm
 @group(0) @binding(6) var<storage, read_write> hidden: array<f32>;
+@group(0) @binding(7) var<storage, read> wNext: array<f32>;    // next attn_norm
+@group(0) @binding(8) var<storage, read_write> yNext: array<f32>;
 var<workgroup> sg8: array<f32, 8>;
 var<workgroup> comb: array<f32, ${H}>;
 fn redAdd(lid: u32, v: f32) -> f32 {
@@ -50,7 +52,22 @@ fn main(@builtin(local_invocation_id) lid3: vec3<u32>) {
   }
   let r3 = redAdd(lid, s3);
   let inv3 = pow(r3 / f32(${H}u) + ${EPS}, -0.5);
+  var s4: f32 = 0.0;
   for (var i = lid; i < ${H}u; i = i + ${WG}u) {
-    hidden[i] = (hidden[i] + comb[i] * inv3 * wp[i]) * ${MUL};
+    let hn = (hidden[i] + comb[i] * inv3 * wp[i]) * ${MUL};
+    hidden[i] = hn;
+    comb[i] = hn;
+    s4 = s4 + hn * hn;
+  }
+  workgroupBarrier();
+  if (${NEXT}u == 1u) {                       // next layer's input norm, fused
+    let r4 = redAdd(lid, s4);
+    let inv4 = pow(r4 / f32(${H}u) + ${EPS}, -0.5);
+    for (var i = lid; i < ${H}u; i = i + ${WG}u) {
+      yNext[i] = comb[i] * inv4 * wNext[i];
+    }
+  } else {
+    _ = wNext[0];
+    _ = yNext[0];
   }
 }
