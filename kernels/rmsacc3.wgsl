@@ -8,7 +8,8 @@ enable subgroups;
 @group(0) @binding(2) var<storage, read> w1: array<f32>;
 @group(0) @binding(3) var<storage, read> w2: array<f32>;
 @group(0) @binding(4) var<storage, read> w3: array<f32>;
-@group(0) @binding(5) var<storage, read_write> hidden: array<f32>;
+@group(0) @binding(5) var<storage, read> hIn: array<f32>;
+@group(0) @binding(9) var<storage, read_write> hOut: array<f32>;
 @group(0) @binding(6) var<storage, read_write> y1: array<f16>;
 @group(0) @binding(7) var<storage, read_write> y2: array<f32>;
 @group(0) @binding(8) var<storage, read_write> y3: array<f16>;
@@ -34,8 +35,8 @@ fn main(@builtin(local_invocation_id) lid3: vec3<u32>) {
   let inv1 = pow(redAdd(lid, s) / f32(${DIM}u) + ${EPS}, -0.5);
   var s2: f32 = 0.0;
   for (var i = lid; i < ${DIM}u; i = i + ${WG}u) {
-    let h = hidden[i] + t[i] * inv1 * wAcc[i];
-    hidden[i] = h;
+    let h = hIn[i] + t[i] * inv1 * wAcc[i];
+    hOut[i] = h;
     hs[i] = h;
     s2 = s2 + h * h;
   }

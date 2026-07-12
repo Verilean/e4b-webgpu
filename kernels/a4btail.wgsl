@@ -8,7 +8,8 @@ enable subgroups;
 @group(0) @binding(2) var<storage, read> m: array<f32>;       // combined moe down
 @group(0) @binding(3) var<storage, read> w2: array<f32>;       // post_ffw_norm_2
 @group(0) @binding(4) var<storage, read> wp: array<f32>;       // post_ffw_norm
-@group(0) @binding(5) var<storage, read_write> hidden: array<f32>;
+@group(0) @binding(5) var<storage, read> hIn: array<f32>;
+@group(0) @binding(8) var<storage, read_write> hOut: array<f32>;
 @group(0) @binding(6) var<storage, read> wNext: array<f32>;    // next attn_norm
 @group(0) @binding(7) var<storage, read_write> yNext: array<f16>;
 var<workgroup> sg8: array<f32, 8>;
@@ -49,8 +50,8 @@ fn main(@builtin(local_invocation_id) lid3: vec3<u32>) {
   let inv3 = pow(r3 / f32(${H}u) + ${EPS}, -0.5);
   var s4: f32 = 0.0;
   for (var i = lid; i < ${H}u; i = i + ${WG}u) {
-    let hn = (hidden[i] + comb[i] * inv3 * wp[i]) * ${MUL};
-    hidden[i] = hn;
+    let hn = (hIn[i] + comb[i] * inv3 * wp[i]) * ${MUL};
+    hOut[i] = hn;
     comb[i] = hn;
     s4 = s4 + hn * hn;
   }

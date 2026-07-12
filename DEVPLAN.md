@@ -570,3 +570,29 @@ data point — requantize the tied Q6_K embed (605 MB/token, 25% of all reads!)
 to int4/int2 class — but that changes weights, forfeits token-exactness vs
 llama.cpp, and llama.cpp could do the same; it is a model-config win, not an
 engine win, and would be reported as a separate row, not a parity claim.
+
+## The fencetest verdict + the webml k08 pattern (2026-07-12)
+
+**「dispatch 境界税って本当?」— tested, and the honest answer is NUANCED:**
+synthetic chains of 1000 trivial dispatches measure:
+- same-buffer READ-MODIFY-WRITE chain: **87-156 µs/dispatch** (pathological)
+- producer→consumer (ping-pong RAW): **4-5 µs**
+- same-buffer WAW: 2.0 µs; independent: 1.9 µs
+⇒ ordinary fences are nearly free; the catastrophe is RMW-on-one-buffer. Our
+chain had THREE RMW sites × 30 layers (rmsacc3's hidden, tail's hidden,
+headprep's in-place qkv) — all converted to split-in/out (hidden ping-pongs
+A→B→A per layer; headprep writes a separate qPrep). GATE PASS; walls became
+eerily stable (11.43 ± 0.02 under contention); the quiet-window verdict is
+nightrun's.
+
+**webml E2B kernel reading (per user direction) — the structural next step:**
+- k08 = matvec + post-norm + residual in ONE dispatch via the last-WG pattern:
+  matvec WGs atomicStore rows + ticket counter; the last WG re-reads through
+  atomics and applies `hidden += RMSNorm(d)·w` (cross-WG visibility is only
+  guaranteed through atomics — their comment says exactly this). This is
+  their OprojNorm/DownNormAdd, and it removes our oMv→rmsacc3 and
+  down/moedown→tail fences AND the 1-WG norm dispatches. Needs
+  maxStorageBuffersPerShaderStage > 12 (concat norm-weight buffers) — planned
+  as the next leg.
+- k13 confirms subgroup-matrix is their PREFILL GEMM (M≥64, int8-code domain,
+  f16 tiles, f32 accum, integer-exact) — validates M6/P6 as pre-registered.

@@ -1,1 +1,25 @@
 === nightrun armed 日  7月 12 16:04:40 JST 2026 ===
+=== quiet window found 日  7月 12 16:37:19 JST 2026 (load=0.51 ws=0%) ===
+  layer 25/30 (24s)
+weights on GPU in 28.2s
+pipelines built
+RESIDENT READY in 28.3s
+DONE
+decode: 12.20ms/token  81.9 tok/s  (n=64)
+decode: 10.60ms/token  94.4 tok/s  (n=64)
+decode: 10.52ms/token  95.0 tok/s  (n=64)
+decode: 10.55ms/token  94.7 tok/s  (n=64)
+profile total (serialized): 8.36ms
+  1.811ms x30  q40gu{"IN":2816,"FF":704,"FF2":2112,"E":128,"K":8,"EXPERT":2}
+  1.247ms x1  q6k{"N":2816,"OUT":262144,"MODE":1,"TILE":128,"MULT":"1.0","SOFTCAP":"30.0","TOKSRC":0}
+  0.827ms x25  q40mv{"IN":2816,"OUT":8192,"EXPERT":0,"XSLOT":0,"XF16":1,"WG":64}
+  0.904ms x30  q40moedown{"IN":704,"OUT":2816,"K":8}
+  0.611ms x30  rmsacc3{"DIM":2816,"EPS":9.999999974752427e-7,"WG":256}
+  0.595ms x30  routertop{"H":2816,"E":128,"K":8,"WG":64}
+  0.480ms x25  q40mv{"IN":4096,"OUT":2816,"EXPERT":0,"XSLOT":0,"XF16":1,"WG":32}
+  0.435ms x30  q40mv{"IN":2112,"OUT":2816,"EXPERT":0,"XSLOT":0,"XF16":1,"WG":32}
+  0.320ms x25  attnf32{"Q_HEADS":16,"KV_HEADS":8,"HEAD_DIM":256,"MAXSEQ":640,"WINDOW":1024,"DT":1,"WG":256}
+  0.097ms x25  headprep{"QH":16,"KVH":8,"HEAD_DIM":256,"ROPE_ANGLES":128,"THETA":"10000.0","EPS":9.999999974752427e
+  0.103ms x5  attnf32{"Q_HEADS":16,"KV_HEADS":2,"HEAD_DIM":512,"MAXSEQ":640,"WINDOW":0,"DT":1,"WG":256}
+GATE PASS
+=== nightrun complete 日  7月 12 16:37:59 JST 2026 ===

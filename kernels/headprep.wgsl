@@ -5,7 +5,8 @@ enable subgroups;
 // kcache write), [QH+KVH, QH+2*KVH) v-heads (scale-less RMS + vcache write).
 // Shared layers dispatch only QH workgroups. Cache layout [MAXSEQ, KVH, HD].
 // Params: QH, KVH, HEAD_DIM, ROPE_ANGLES, THETA, EPS, KEQV(0/1), WG
-@group(0) @binding(0) var<storage, read_write> qkv: array<f32>;  // [QH+2*KVH][HD]
+@group(0) @binding(0) var<storage, read> qkv: array<f32>;       // [QH+(1|2)*KVH][HD]
+@group(0) @binding(7) var<storage, read_write> qOut: array<f32>; // prepped q
 @group(0) @binding(1) var<storage, read> qw: array<f32>;
 @group(0) @binding(2) var<storage, read> kw: array<f32>;
 @group(0) @binding(3) var<storage, read> params: array<u32>;     // [0]=pos
@@ -43,11 +44,11 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
       if (p < ${ROPE_ANGLES}u) {
         let th = fp * pow(${THETA}, -2.0 * f32(p) / f32(${HEAD_DIM}u));
         let c = cos(th); let sn = sin(th);
-        qkv[base + p] = x0 * c - x1 * sn;
-        qkv[base + p + half] = x0 * sn + x1 * c;
+        qOut[base + p] = x0 * c - x1 * sn;
+        qOut[base + p + half] = x0 * sn + x1 * c;
       } else {
-        qkv[base + p] = x0;
-        qkv[base + p + half] = x1;
+        qOut[base + p] = x0;
+        qOut[base + p + half] = x1;
       }
     }
   } else if (wid.x < ${QH}u + ${KVH}u) {                   // k: rope → kcache

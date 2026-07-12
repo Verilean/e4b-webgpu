@@ -100,6 +100,36 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
         L(`  ${(e.us / 1000).toFixed(3)}ms x${e.n}  ${lb.slice(0, 100)}`);
       return;
     }
+    if (cmd.mode === "fencetest") {
+      const { Kernels } = await import("./src/gpu.js");
+      const K2 = new Kernels(eng.device);
+      const dep = await K2.pipeline("fencetest", { DEP: 1 });
+      const pp = await K2.pipeline("fencetest", { DEP: 2 });
+      const waw = await K2.pipeline("fencetest", { DEP: 4 });
+      const ind = await K2.pipeline("fencetest", { DEP: 0 });
+      const bufA = eng.device.createBuffer({ size: 8192, usage: GPUBufferUsage.STORAGE });
+      const bufB = eng.device.createBuffer({ size: 8192, usage: GPUBufferUsage.STORAGE });
+      const N = 1000;
+      for (const [name, k, ping] of [["same-buf RMW", dep, false], ["ping-pong RAW", pp, true], ["same-buf WAW", waw, false], ["independent", ind, false]]) {
+        const enc = eng.device.createCommandEncoder();
+        const pass = enc.beginComputePass();
+        const mk = (a, b) => eng.device.createBindGroup({ layout: k.pipeline.getBindGroupLayout(0),
+          entries: [{ binding: 0, resource: { buffer: a } }, { binding: 1, resource: { buffer: b } }] });
+        const bgAB = mk(bufA, bufB), bgBA = mk(bufB, bufA);
+        for (let i = 0; i < N; i++) {
+          pass.setPipeline(k.pipeline);
+          pass.setBindGroup(0, ping && (i & 1) ? bgBA : bgAB);
+          pass.dispatchWorkgroups(1);
+        }
+        pass.end();
+        const t0 = performance.now();
+        eng.device.queue.submit([enc.finish()]);
+        await eng.device.queue.onSubmittedWorkDone();
+        const dt = performance.now() - t0;
+        L(`fencetest ${name}: ${N} dispatches in ${dt.toFixed(2)}ms = ${(dt * 1000 / N).toFixed(2)}us/dispatch`);
+      }
+      return;
+    }
     if (cmd.mode === "mvtest") {
       // synthetic XF16 q40mv check: known f16 x into A.geglu, run l0.downMv,
       // JS-recompute row 0 exactly from the repacked planes.

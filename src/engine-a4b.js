@@ -177,6 +177,8 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     params: alloc(device, 16),
     paramsRing: Array.from({ length: 32 }, () => alloc(device, 16)),
     hidden: alloc(device, C.hidden * 4),
+    hiddenB: alloc(device, C.hidden * 4),
+    qPrep: alloc(device, 16 * C.hdFull * 4),
     normed: alloc(device, C.hidden * 2),        // f16
     moeIn: alloc(device, C.hidden * 2),          // f16 (pre-ffw-2 normed)
     tmp: alloc(device, C.hidden * 4),
@@ -292,14 +294,14 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     if (ATTN2) {
       run(l.attn2, [A.qkv, l.qNorm, l.kNorm, P, l.kCache, l.vCache, A.attnOut], C.qHeads);
     } else {
-      run(l.headprep, [A.qkv, l.qNorm, l.kNorm, P, l.kCache, l.vCache, A.dummySumI],
-          C.qHeads + 2 * l.kvHeads);
-      run(l.attn, [A.qkv, l.kCache, l.vCache, P, A.attnOut], [C.qHeads, 1]);
+      run(l.headprep, [A.qkv, l.qNorm, l.kNorm, P, l.kCache, l.vCache, A.dummySumI,
+          A.qPrep], C.qHeads + 2 * l.kvHeads);
+      run(l.attn, [A.qPrep, l.kCache, l.vCache, P, A.attnOut], [C.qHeads, 1]);
     }
     run(l.oMv, [A.dumX, l.o.nibBuf, l.o.scBuf, A.topkIdx, A.tmp, A.attnOut], wg(C.hidden, 2));
     // fused: postAttn norm + residual + the ffn/router/pre-ffw-2 triple norm
     run(kern.rmsacc3, [A.tmp, l.postAttnNorm, l.ffnNorm, l.routerS, l.preFfw2,
-        A.hidden, A.normed, A.routerIn, A.moeIn], 1);
+        A.hidden, A.normed, A.routerIn, A.moeIn, A.hiddenB], 1);
     // dense and MoE branches interleaved: hazard-free neighbors overlap on GPU
     run(kern.routerTop, [A.routerIn, l.routerW, l.pes, A.routerScores, A.routerCtr,
         A.topkIdx, A.topkW], C.nExperts);
@@ -311,8 +313,8 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
         A.moeOut], wg(C.hidden, 4));
     // fused tail: postFfw1/2 + add + post norm + residual + scalar (+ next norm)
     const nx = layers[l.i + 1];
-    run(l.tail, [A.tmp, l.postFfw1, A.moeOut, l.postFfw2, l.postFfw, A.hidden,
-        nx ? nx.attnNorm : l.attnNorm, A.normed], 1);
+    run(l.tail, [A.tmp, l.postFfw1, A.moeOut, l.postFfw2, l.postFfw, A.hiddenB,
+        nx ? nx.attnNorm : l.attnNorm, A.normed, A.hidden], 1);
   }
 
   function encodeForward(run, P = A.params, decode = false) {
