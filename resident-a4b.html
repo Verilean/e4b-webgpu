@@ -87,6 +87,19 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
       }
       return;
     }
+    if (cmd.mode === "profile") {
+      const g = goldens.prompts[0];
+      let pos = 0;
+      for (const t of g.input_ids) await eng.step(t, pos++);
+      const prof = await eng.profileStep(0, pos);
+      if (!prof) { L("no timestamp-query"); return; }
+      const rows = [...prof.entries()].sort((a, b) => b[1].us - a[1].us);
+      const tot = rows.reduce((a, r) => a + r[1].us, 0);
+      L(`profile total (serialized): ${(tot / 1000).toFixed(2)}ms`);
+      for (const [lb, e] of rows.slice(0, 16))
+        L(`  ${(e.us / 1000).toFixed(3)}ms x${e.n}  ${lb.slice(0, 100)}`);
+      return;
+    }
     if (cmd.mode === "logits") {
       const g = goldens.prompts[0];
       let pos = 0;

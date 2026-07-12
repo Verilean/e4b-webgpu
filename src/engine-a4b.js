@@ -77,6 +77,19 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     const { nib, sc } = repackQ40(t.buf);
     return { dims: t.dims, nibBuf: upload(device, nib), scBuf: upload(device, sc) };
   }
+  async function q40cat(names) {                 // concat rows of same-IN linears
+    const parts = [];
+    for (const n of names) parts.push(repackQ40((await st.fetch(n)).buf));
+    const nib = new Uint8Array(parts.reduce((a, p2) => a + p2.nib.length, 0));
+    const nBlocks = parts.reduce((a, p2) => a + p2.nib.length / 16, 0);
+    const sc = new Uint16Array((nBlocks + 1) & ~1);      // even count → 4B multiple
+    let no = 0, so = 0;
+    for (const p2 of parts) {
+      nib.set(p2.nib, no); no += p2.nib.length;
+      sc.set(p2.sc.subarray(0, p2.nib.length / 16), so); so += p2.nib.length / 16;
+    }
+    return { nibBuf: upload(device, nib), scBuf: upload(device, sc) };
+  }
 
   L("loading weights (GGUF q4_0 → repacked planes)…");
   const emb = repackQ6K((await st.fetch("token_embd.weight")).buf);
@@ -112,7 +125,12 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       preFfw2: await f32buf(p + "pre_ffw_norm_2.weight"),
       layerScalarVal: await scalarOf(p + "layer_output_scale.weight"),
       routerW: await f32buf(p + "ffn_gate_inp.weight"),
-      routerS: await f32buf(p + "ffn_gate_inp.scale"),
+      routerS: await (async () => {
+        const v = new Float32Array((await st.fetch(p + "ffn_gate_inp.scale")).buf);
+        const m = 1 / Math.sqrt(C.hidden);            // fold h^-0.5 into the scale
+        for (let j = 0; j < v.length; j++) v[j] *= m;
+        return upload(device, v);
+      })(),
       pes: await f32buf(p + "ffn_down_exps.scale"),
       guExps: await q40(p + "ffn_gate_up_exps.weight"),
       downExps: await q40(p + "ffn_down_exps.weight"),
@@ -122,6 +140,11 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     if (!l.keqv) l.v = await q40(p + "attn_v.weight");
     l.qOut = l.q.dims[1];                                // rows
     l.kvOut = l.k.dims[1];
+    l.qkvCat = await q40cat(l.keqv
+      ? [p + "attn_q.weight", p + "attn_k.weight"]
+      : [p + "attn_q.weight", p + "attn_k.weight", p + "attn_v.weight"]);
+    l.qkvRows = l.qOut + l.kvOut * (l.keqv ? 1 : 2);
+    l.guCat = await q40cat([p + "ffn_gate.weight", p + "ffn_up.weight"]);
     layers.push(l);
     if (i % 5 === 0) L(`  layer ${i}/${C.layers} (${((performance.now() - t0) / 1000).toFixed(0)}s)`);
   }
@@ -144,12 +167,16 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     guSlots: alloc(device, KEXP * 2 * C.expInter * 4),
     gegluSlots: alloc(device, KEXP * C.expInter * 4),
     downSlots: alloc(device, KEXP * C.hidden * 4),
+    routerIn: alloc(device, C.hidden * 4),
+    routerScores: alloc(device, 128 * 4),
     topkIdx: alloc(device, KEXP * 4),
     topkW: alloc(device, KEXP * 4),
     logits: alloc(device, C.vocab * 4),
     amax: alloc(device, 16),
     amaxPart: alloc(device, 256 * 8),
     tokRing: alloc(device, 1024 * 8),
+    onesE: upload(device, new Float32Array(128).fill(1)),
+    srqZero: upload(device, new Float32Array([0, 0]), GPUBufferUsage.UNIFORM),
     dummySums: alloc(device, 16),
     dummySumI: alloc(device, 16),
   };
@@ -166,10 +193,12 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     lmHead: await K.pipeline("q6k", { N: C.hidden, OUT: C.vocab, MODE: 1, TILE: 64,
       MULT: "1.0", SOFTCAP: C.softcap.toFixed(1) }),
     rms: await K.pipeline("rmsnorm", { DIM: C.hidden, EPS: C.eps, WITH_SCALE: 1, SUMOUT: 0, WG: 256 }),
-    router: await K.pipeline("router", { H: C.hidden, E: C.nExperts, K: KEXP, EPS: C.eps, WG: 128 }),
+    routerMv: await K.pipeline("matvec2f", { BITS: 32, IN: C.hidden, OUT: C.nExperts, WG: 64, SOFTCAP: "0.0" }),
+    top8: await K.pipeline("top8", { E: C.nExperts, K: KEXP }),
     gegluDense: await K.pipeline("geglumul", { N: C.inter, WG: 256 }),
     gegluSlots: await K.pipeline("geglusl", { FF: C.expInter, K: KEXP, WG: 256 }),
-    moeComb: await K.pipeline("moecomb", { H: C.hidden, K: KEXP, WG: 256 }),
+    rms3: await K.pipeline("rms3", { DIM: C.hidden, EPS: C.eps, WG: 256 }),
+    rmsacc3: await K.pipeline("rmsacc3", { DIM: C.hidden, EPS: C.eps, WG: 256 }),
     accH: await K.pipeline("acc", { N: C.hidden, WG: 256 }),
     argmax0: await K.pipeline("argmax2", { N: C.vocab, PARTS: 256, STAGE: 0, WG: 256 }),
     argmax1: await K.pipeline("argmax2", { N: C.vocab, PARTS: 256, STAGE: 1, WG: 256 }),
@@ -178,12 +207,9 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     for (const l of layers) {
     const ra = l.isSliding ? l.headDim / 2 : Math.floor(0.25 * l.headDim / 2);
     const theta = l.isSliding ? "10000.0" : "1000000.0";
-    l.qMv = await mv(C.hidden, l.qOut);
-    l.kMv = await mv(C.hidden, l.kvOut);
-    if (!l.keqv) l.vMv = await mv(C.hidden, l.kvOut);
+    l.qkvMv = await mv(C.hidden, l.qkvRows);
     l.oMv = await mv(l.qOut, C.hidden);
-    l.gateMv = await mv(C.hidden, C.inter);
-    l.upMv = await mv(C.hidden, C.inter);
+    l.guMv = await mv(C.hidden, 2 * C.inter);
     l.downMv = await mv(C.inter, C.hidden);
     l.guExpsMv = await mv(C.hidden, 2 * C.expInter, { expert: 1 });
     l.downExpsMv = await mv(C.expInter, C.hidden, { expert: 1, xslot: 1 });
@@ -192,7 +218,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       KEQV: l.keqv ? 1 : 0, WG: 128 });
     l.attn = await K.pipeline("attnf32", { Q_HEADS: C.qHeads, KV_HEADS: l.kvHeads,
       HEAD_DIM: l.headDim, MAXSEQ, WINDOW: l.isSliding ? C.window : 0, DT: 1, WG: 256 });
-    l.rmsaccMul = await K.pipeline("rmsacc", { DIM: C.hidden, EPS: C.eps,
+    l.tail = await K.pipeline("a4btail", { H: C.hidden, K: KEXP, EPS: C.eps,
       MUL: l.layerScalarVal.toPrecision(9), WG: 256 });
       l.rmsaccOne = await K.pipeline("rmsacc", { DIM: C.hidden, EPS: C.eps, MUL: "1.0", WG: 256 });
     }
@@ -227,40 +253,27 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   function encodeLayer(run, l) {
     // attention
     run(kern.rms, [A.hidden, l.attnNorm, A.normed, A.dummySums], 1);
-    run(l.qMv, [A.normed, l.q.nibBuf, l.q.scBuf, A.topkIdx, A.qkv], wg(l.qOut, 2));
-    run(l.kMv, [A.normed, l.k.nibBuf, l.k.scBuf, A.topkIdx,
-        { buffer: A.qkv, offset: l.qOut * 4, size: l.kvOut * 4 }], wg(l.kvOut, 2));
-    if (!l.keqv) {
-      run(l.vMv, [A.normed, l.v.nibBuf, l.v.scBuf, A.topkIdx,
-          { buffer: A.qkv, offset: (l.qOut + l.kvOut) * 4, size: l.kvOut * 4 }], wg(l.kvOut, 2));
-    }
+    run(l.qkvMv, [A.normed, l.qkvCat.nibBuf, l.qkvCat.scBuf, A.topkIdx, A.qkv], wg(l.qkvRows, 2));
     run(l.headprep, [A.qkv, l.qNorm, l.kNorm, A.params, l.kCache, l.vCache, A.dummySumI],
         C.qHeads + 2 * l.kvHeads);
     run(l.attn, [A.qkv, l.kCache, l.vCache, A.params, A.attnOut], [C.qHeads, 1]);
     run(l.oMv, [A.attnOut, l.o.nibBuf, l.o.scBuf, A.topkIdx, A.tmp], wg(C.hidden, 2));
-    run(l.rmsaccOne, [A.tmp, l.postAttnNorm, A.hidden], 1);
-    // dense MLP branch
-    run(kern.rms, [A.hidden, l.ffnNorm, A.normed, A.dummySums], 1);
-    run(l.gateMv, [A.normed, l.gate.nibBuf, l.gate.scBuf, A.topkIdx, A.gu], wg(C.inter, 2));
-    run(l.upMv, [A.normed, l.up.nibBuf, l.up.scBuf, A.topkIdx,
-        { buffer: A.gu, offset: C.inter * 4, size: C.inter * 4 }], wg(C.inter, 2));
+    // fused: postAttn norm + residual + the ffn/router/pre-ffw-2 triple norm
+    run(kern.rmsacc3, [A.tmp, l.postAttnNorm, l.ffnNorm, l.routerS, l.preFfw2,
+        A.hidden, A.normed, A.routerIn, A.moeOut], 1);
+    run(l.guMv, [A.normed, l.guCat.nibBuf, l.guCat.scBuf, A.topkIdx, A.gu], wg(2 * C.inter, 2));
     run(kern.gegluDense, [{ buffer: A.gu, offset: 0, size: C.inter * 4 },
         { buffer: A.gu, offset: C.inter * 4, size: C.inter * 4 }, A.geglu], wg(C.inter, 256));
     run(l.downMv, [A.geglu, l.down.nibBuf, l.down.scBuf, A.topkIdx, A.tmp], wg(C.hidden, 2));
-    run(kern.rms, [A.tmp, l.postFfw1, A.mlpOut, A.dummySums], 1);
-    // MoE branch (router input = the RAW post-attention residual = hidden)
-    run(kern.router, [A.hidden, l.routerS, l.routerW, l.pes, A.topkIdx, A.topkW], 1);
-    run(kern.rms, [A.hidden, l.preFfw2, A.normed, A.dummySums], 1);
-    run(l.guExpsMv, [A.normed, l.guExps.nibBuf, l.guExps.scBuf, A.topkIdx, A.guSlots],
+    run(kern.routerMv, [A.routerIn, l.routerW, A.onesE, A.srqZero, A.routerScores], C.nExperts);
+    run(kern.top8, [A.routerScores, l.pes, A.topkIdx, A.topkW], 1);
+    run(l.guExpsMv, [A.moeOut, l.guExps.nibBuf, l.guExps.scBuf, A.topkIdx, A.guSlots],
         [wg(2 * C.expInter, 2), 1, KEXP]);
     run(kern.gegluSlots, [A.guSlots, A.gegluSlots], wg(KEXP * C.expInter, 256));
     run(l.downExpsMv, [A.gegluSlots, l.downExps.nibBuf, l.downExps.scBuf, A.topkIdx, A.downSlots],
         [wg(C.hidden, 2), 1, KEXP]);
-    run(kern.moeComb, [A.downSlots, A.topkW, A.tmp], wg(C.hidden, 256));
-    run(kern.rms, [A.tmp, l.postFfw2, A.moeOut, A.dummySums], 1);
-    // combine + post norm + residual + layer scalar
-    run(kern.accH, [A.mlpOut, A.moeOut], wg(C.hidden, 256));          // moeOut += mlpOut
-    run(l.rmsaccMul, [A.moeOut, l.postFfw, A.hidden], 1);             // hidden = (hidden + rms(moeOut)*w)*scalar
+    // fused tail: moe-combine + postFfw1/2 + add + post norm + residual + scalar
+    run(l.tail, [A.tmp, l.postFfw1, A.downSlots, A.topkW, l.postFfw2, l.postFfw, A.hidden], 1);
   }
 
   function encodeForward(run) {
@@ -281,6 +294,40 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     encodeForward(mkRun(pass));
     pass.end();
     device.queue.submit([enc.finish()]);
+  }
+
+  // per-dispatch GPU budget (pass-per-dispatch timestamps; RANKING only)
+  async function profileStep(token, pos) {
+    if (!device.features.has("timestamp-query")) return null;
+    device.queue.writeBuffer(A.params, 0, new Uint32Array([pos, pos + 1, token, 0]));
+    const qs = device.createQuerySet({ type: "timestamp", count: 4096 });
+    const enc = device.createCommandEncoder();
+    const labels = [];
+    const run = (k, bufs, groups) => {
+      const i = labels.length;
+      const pass = enc.beginComputePass({ timestampWrites: {
+        querySet: qs, beginningOfPassWriteIndex: 2 * i, endOfPassWriteIndex: 2 * i + 1 } });
+      pass.setPipeline(k.pipeline);
+      pass.setBindGroup(0, bind(k, bufs));
+      pass.dispatchWorkgroups(...(Array.isArray(groups) ? groups : [groups]));
+      pass.end();
+      labels.push(k.pipeline.label);
+    };
+    encodeForward(run);
+    const qbuf = device.createBuffer({ size: labels.length * 16,
+      usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC });
+    enc.resolveQuerySet(qs, 0, labels.length * 2, qbuf, 0);
+    device.queue.submit([enc.finish()]);
+    const t = new BigUint64Array(await readback(device, qbuf, labels.length * 16));
+    const agg = new Map();
+    labels.forEach((lb, i) => {
+      const us = Number(t[2 * i + 1] - t[2 * i]) / 1000;
+      const e = agg.get(lb) ?? { us: 0, n: 0 };
+      e.us += us; e.n += 1;
+      agg.set(lb, e);
+    });
+    qs.destroy(); qbuf.destroy();
+    return agg;
   }
 
   async function argmaxFast() {
@@ -332,5 +379,5 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   }
 
   return { device, C, layers, model, A, kern, step, decodeChunk, generateFast,
-           argmaxFast, readHidden, encodeForward, encodeLayerPub: encodeLayer, mkRun, bindPub: bind, rebuildPipelines };
+           argmaxFast, readHidden, encodeForward, encodeLayerPub: encodeLayer, mkRun, bindPub: bind, rebuildPipelines, profileStep };
 }

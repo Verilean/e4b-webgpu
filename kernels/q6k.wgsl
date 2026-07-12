@@ -16,6 +16,7 @@ enable subgroups;
 @group(0) @binding(6) var<storage, read_write> y: array<f32>;
 
 var<workgroup> xs: array<vec4<f32>, ${N} / 4>;
+var<workgroup> gs: array<f32, ${N} / 16>;   // per-16-elem group sums (−32 refold)
 
 fn i8of(word: u32, k: u32) -> f32 {
   return f32((i32(word << ((3u - k) * 8u))) >> 24u);
@@ -78,15 +79,61 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
     }
     return;
   }
-  // MODE 1: matvec — stage x, thread-per-row tile
+  // MODE 1: matvec — stage x + group sums, thread-per-row tile, native unpacks.
+  // Per 128-half: q_i = qlnib_i + 16*qh2_i; Σ(q−32)x over 16-elem scale groups:
+  //   y = d·[ 255·Σ_w sc(g)·(dot(unorm(ql),x4) + 16·dot(unorm(qh2),x4)) − 32·Σ_j sc_j·S_j ]
   if ((wid.y * 32768u + wid.x) * ${TILE}u >= ${OUT}u) { return; }
   for (var i = lid.x; i < ${N}u / 4u; i = i + ${TILE}u) { xs[i] = x[i]; }
+  workgroupBarrier();
+  for (var g = lid.x; g < ${N}u / 16u; g = g + ${TILE}u) {
+    let q0 = xs[g * 4u]; let q1 = xs[g * 4u + 1u]; let q2 = xs[g * 4u + 2u]; let q3 = xs[g * 4u + 3u];
+    gs[g] = dot(q0, vec4f(1.0)) + dot(q1, vec4f(1.0)) + dot(q2, vec4f(1.0)) + dot(q3, vec4f(1.0));
+  }
   workgroupBarrier();
   let o = (wid.y * 32768u + wid.x) * ${TILE}u + lid.x;
   if (o >= ${OUT}u) { return; }
   var acc: f32 = 0.0;
   for (var b: u32 = 0u; b < blocksPerRow; b = b + 1u) {
-    acc = acc + doBlock(o, b, blocksPerRow, 1.0);
+    let blk = o * blocksPerRow + b;
+    let d = dOf(blk);
+    var bacc: f32 = 0.0;                      // 255-scaled dots
+    var gsum: f32 = 0.0;                      // Σ_j sc_j S_j
+    for (var h: u32 = 0u; h < 2u; h = h + 1u) {
+      let qlB = blk * 8u + h * 4u;            // vec4<u32> (16B) units
+      let qhB = blk * 4u + h * 2u;
+      let scB = blk * 4u + h * 2u;            // u32 (4×i8) units
+      let e0 = b * 64u + h * 32u;             // first x-vec4 of this half (256 elems = 64 v4)
+      for (var w: u32 = 0u; w < 8u; w = w + 1u) {
+        let qlA = ql[qlB + (w / 4u)][w % 4u];         // bytes l=4w..4w+3
+        let qlBv = ql[qlB + 2u + (w / 4u)][w % 4u];   // bytes l+32
+        let qhw = qh[qhB + (w / 4u)][w % 4u];
+        let is = w / 4u;                               // sc group 0 or 1
+        let s0 = i8of(sc[scB + ((is + 0u) / 4u)], (is + 0u) % 4u);
+        let s2 = i8of(sc[scB + ((is + 2u) / 4u)], (is + 2u) % 4u);
+        let s4 = i8of(sc[scB + ((is + 4u) / 4u)], (is + 4u) % 4u);
+        let s6 = i8of(sc[scB + ((is + 6u) / 4u)], (is + 6u) % 4u);
+        let x0 = xs[e0 + w];          // elems l..l+3
+        let x1 = xs[e0 + 8u + w];     // elems l+32..
+        let x2 = xs[e0 + 16u + w];    // elems l+64..
+        let x3 = xs[e0 + 24u + w];    // elems l+96..
+        bacc = bacc
+          + s0 * (dot(unpack4x8unorm(qlA & 0x0F0F0F0Fu), x0)
+                + 16.0 * dot(unpack4x8unorm(qhw & 0x03030303u), x0))
+          + s2 * (dot(unpack4x8unorm(qlBv & 0x0F0F0F0Fu), x1)
+                + 16.0 * dot(unpack4x8unorm((qhw >> 2u) & 0x03030303u), x1))
+          + s4 * (dot(unpack4x8unorm((qlA >> 4u) & 0x0F0F0F0Fu), x2)
+                + 16.0 * dot(unpack4x8unorm((qhw >> 4u) & 0x03030303u), x2))
+          + s6 * (dot(unpack4x8unorm((qlBv >> 4u) & 0x0F0F0F0Fu), x3)
+                + 16.0 * dot(unpack4x8unorm((qhw >> 6u) & 0x03030303u), x3));
+      }
+      // −32 refold: Σ_j sc_j S_j over this half's 8 groups (elems h*128 + j*16)
+      let g0 = b * 16u + h * 8u;
+      for (var j: u32 = 0u; j < 8u; j = j + 1u) {
+        let sj = i8of(sc[scB + (j / 4u)], j % 4u);
+        gsum = gsum + sj * gs[g0 + j];
+      }
+    }
+    acc = acc + d * (255.0 * bacc - 32.0 * gsum);
   }
   var out = acc;
   if (${SOFTCAP} != 0.0) { out = ${SOFTCAP} * tanh(out / ${SOFTCAP}); }

@@ -292,3 +292,30 @@ in-kernel top-8; slot geglu; moe combine; f32 attention variant).
 
 Naive speed: **45.1 ms/token = 22.2 tok/s** (M4 start; llama.cpp 112.5;
 physics ceiling ~125-137). Wall clock M0→M3: **12:33 → 13:03 = 30 min.**
+
+## Campaign 2 — M4 progress log (2026-07-08 afternoon)
+
+Ladder (all steps GATE PASS = 3/3 prompts token-exact vs llama.cpp, verified
+via the resident tab per change):
+- 45.1 ms (naive M3)
+- → 18.1 ms: **Q6_K lm_head vectorized** (q = ql + 16·qh2 decomposition — BOTH
+  planes decode via native unpack4x8unorm with a single /255 refold; −32 zero
+  point deferred through per-16-elem group sums computed in-WG; 10.8→2.5 ms,
+  195 GB/s) + **router split** (was a 154 µs single-WG serial monster, 18% of
+  the token! → rmsnorm-reuse + matvec2f + tiny top-8 kernel ≈ 25 µs).
+- → 14.6 ms: rms3 (one reduction, three scaled outputs for ffn/router/pre-ffw-2)
+  + a4btail (moe-combine + postFfw1/2 + add + post-norm + residual + layer
+  scalar = 5 dispatches → 1).
+- → **13.4 ms = 74.6 tok/s**: qkv concat (k_eq_v layers concat q+k only),
+  gate+up concat, rmsacc3 (post-attn residual fused with the triple norm).
+  ~14 dispatches/layer (from 24 naive).
+
+Traps hit: 9-storage-binding kernel exceeded the DEFAULT
+maxStorageBuffersPerShaderStage=8 (raise in requiredLimits); concat scale
+planes must pad to 4-byte multiples for writeBuffer.
+
+Current budget (serialized): guExps 1.40 (338 GB/s ✓near-cap), lm_head 2.46
+(195 GB/s — next: 64-row tile repack, campaign-1 pattern), downExps 0.96,
+dense gu 1.05→concat'd, attn 0.38+0.12, top8 0.46 (fence-bound smalls).
+Remaining to must-beat 8.89 ms: lm_head tiling (−1.2), small-op fences,
+downExps short-row shape.

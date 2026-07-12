@@ -11,6 +11,7 @@ export async function initDevice() {
       maxBufferSize: Math.min(1 << 30, adapter.limits.maxBufferSize),
       maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
       maxComputeInvocationsPerWorkgroup: adapter.limits.maxComputeInvocationsPerWorkgroup,
+      maxStorageBuffersPerShaderStage: Math.min(12, adapter.limits.maxStorageBuffersPerShaderStage),
     },
   });
   device.addEventListener("uncapturederror", (e) => {
