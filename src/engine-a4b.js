@@ -173,7 +173,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   const bgCache = new Map();
   const A = {
     params: alloc(device, 16),
-    paramsRing: Array.from({ length: 16 }, () => alloc(device, 16)),
+    paramsRing: Array.from({ length: 32 }, () => alloc(device, 16)),
     hidden: alloc(device, C.hidden * 4),
     normed: alloc(device, C.hidden * 2),        // f16
     moeIn: alloc(device, C.hidden * 2),          // f16 (pre-ffw-2 normed)
@@ -199,6 +199,9 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     onesE: upload(device, new Float32Array(128).fill(1)),
     srqZero: upload(device, new Float32Array([0, 0]), GPUBufferUsage.UNIFORM),
     dummySums: alloc(device, 16),
+    dumX: alloc(device, 16),
+    dumY1: alloc(device, 16),
+    dumY2: alloc(device, 16),
     dummySumI: alloc(device, 16),
   };
 
@@ -274,21 +277,22 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   function encodeLayer(run, l, P) {
     // attention (layer 0 norms here; later layers get A.normed from the prev tail)
     if (l.i === 0) run(kern.rms, [A.hidden, l.attnNorm, A.tmp /*unused f32 y*/, A.dummySums, A.normed], 1);
-    run(l.qkvMv, [A.tmp /*unused f32 x*/, l.qkvCat.nibBuf, l.qkvCat.scBuf, A.topkIdx, A.qkv, A.normed], wg(l.qkvRows, 4));
+    run(l.qkvMv, [A.dumX, l.qkvCat.nibBuf, l.qkvCat.scBuf, A.topkIdx, A.qkv, A.normed], wg(l.qkvRows, 4));
     run(l.headprep, [A.qkv, l.qNorm, l.kNorm, P, l.kCache, l.vCache, A.dummySumI],
         C.qHeads + 2 * l.kvHeads);
     run(l.attn, [A.qkv, l.kCache, l.vCache, P, A.attnOut], [C.qHeads, 1]);
-    run(l.oMv, [A.mlpOut /*unused f32 x*/, l.o.nibBuf, l.o.scBuf, A.topkIdx, A.tmp, A.attnOut], wg(C.hidden, 2));
+    run(l.oMv, [A.dumX, l.o.nibBuf, l.o.scBuf, A.topkIdx, A.tmp, A.attnOut], wg(C.hidden, 2));
     // fused: postAttn norm + residual + the ffn/router/pre-ffw-2 triple norm
     run(kern.rmsacc3, [A.tmp, l.postAttnNorm, l.ffnNorm, l.routerS, l.preFfw2,
         A.hidden, A.normed, A.routerIn, A.moeIn], 1);
-    run(l.guMv, [A.normed, l.guCat.nibBuf, l.guCat.scBuf, A.topkIdx,
-        A.mlpOut /*dead f32 slot*/, A.geglu], wg(C.inter, 4));
-    run(l.downMv, [A.mlpOut /*unused f32 x*/, l.down.nibBuf, l.down.scBuf, A.topkIdx, A.tmp, A.geglu], wg(C.hidden, 2));
+    // dense and MoE branches interleaved: hazard-free neighbors overlap on GPU
     run(kern.routerTop, [A.routerIn, l.routerW, l.pes, A.routerScores, A.routerCtr,
         A.topkIdx, A.topkW], C.nExperts);
+    run(l.guMv, [A.normed, l.guCat.nibBuf, l.guCat.scBuf, A.topkIdx,
+        A.dumY1, A.geglu], wg(C.inter, 4));
     run(l.guExpsMv, [A.moeIn, l.guExps.nibBuf, l.guExps.scBuf, A.topkIdx,
-        A.mlpOut /*dead f32 slot*/, A.gegluSlots], [wg(C.expInter, 4), 1, KEXP]);
+        A.dumY2, A.gegluSlots], [wg(C.expInter, 4), 1, KEXP]);
+    run(l.downMv, [A.dumX, l.down.nibBuf, l.down.scBuf, A.topkIdx, A.tmp, A.geglu], wg(C.hidden, 2));
     run(l.downExpsMv, [A.gegluSlots, l.downExps.nibBuf, l.downExps.scBuf, A.topkIdx, A.topkW,
         A.moeOut], wg(C.hidden, 4));
     // fused tail: postFfw1/2 + add + post norm + residual + scalar (+ next norm)
@@ -359,8 +363,8 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   function decodeChunk(startPos, count, ringBase) {
     // one encoder/submit per up to 8 tokens; per-token params come from a ring
     // (positions are known up front; the token id flows GPU-side via feedTok)
-    for (let c = 0; c < count; c += 16) {
-      const n = Math.min(16, count - c);
+    for (let c = 0; c < count; c += 32) {
+      const n = Math.min(32, count - c);
       for (let i = 0; i < n; i++) {
         const pos = startPos + c + i;
         device.queue.writeBuffer(A.paramsRing[i], 0, new Uint32Array([pos, pos + 1]));

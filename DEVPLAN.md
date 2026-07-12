@@ -463,3 +463,23 @@ the optimization metric; wall checked at milestones only.
 Remaining gap = wall−profile ≈ 2.0 ms (submit/fence side): ~11 dispatches ×
 30 layers; llama.cpp wall 8.89. Levers: further dispatch cuts, and the ambient
 CPU contention (the measurement box runs an interactive session).
+
+## Campaign 2 — leg 4 close (2026-07-09)
+
+- 32-token encoders: saturated (≡16).
+- **False-hazard finding**: dead read_write bindings fed with REAL buffers
+  (A.mlpOut/A.tmp as dummy slots) made Dawn track phantom writes → false
+  WAW/RAW edges serializing the dense and MoE branches. Fixed with dedicated
+  never-aliased dummy buffers + read-only decls for unused x slots, and the
+  two branches' dispatches interleaved (hazard-free neighbors can overlap).
+  Profile-neutral (expected — profile serializes by construction); wall effect
+  unmeasurable today: the box entered a contended mode (iTerm 37%, sysmond 26%
+  — active interactive use) shifting walls +2 ms. GATE PASS.
+- **Best clean-window wall this leg: 10.63 ms = 94.1 tok/s** (3 consistent runs
+  at midday); serialized kernel total 8.54-8.73 ms — BELOW llama.cpp's 8.89 ms
+  wall. The remaining ~2 ms is dispatch-boundary cost × ~330 dispatches + box
+  contention — the §8 serialized-dispatch model, third confirmation.
+
+Status: 94.1 best / must-beat 112.5 (84%). The kernel side is done to within
+~0.3 ms of its ceiling; further gains need either fewer dispatches (arch floor
+~11/layer reached) or a quiet box for honest walls.
