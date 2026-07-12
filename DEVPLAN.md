@@ -613,3 +613,22 @@ next leg (−3-4 dispatches/layer ⇒ est. −0.6-0.8 ms ⇒ ~102 tok/s).
 
 **A4B status vs targets: 95.0 / must-beat 112.5 = 84.4%** (llama.cpp reads the
 SAME bytes here — see the format-assist analysis; E4B's win was byte-assisted).
+
+## k08 transplant experiment: REJECTED with data (2026-07-12)
+
+Implemented webml's k08 last-WG-merge (o-proj matvec + rmsacc3 epilogue in one
+dispatch; WG=32 single-subgroup epilogue = barrier-free; workgroupUniformLoad
+for the ticket flag — subgroupBroadcast is NOT Tint-provably uniform). Result:
+**GATE PASS (math correct) but 11.5 → 15.7-17.7 ms — a 40-50% regression,
+reproduced with per-layer pp buffers (not the cross-layer chain).** The
+atomic-path cost (2816 atomicStores of the matvec output + 1408 counter
+atomicAdds per dispatch) is pathological on Dawn/Metal for our shapes —
+consistent with the fencetest RMW finding, and it does NOT transplant from
+webml-E2B (open question: their H=2048/different economics, or Dawn version
+differences). Both merge kernels kept in-tree as documented rejects
+(omerge.wgsl; downMerge not attempted after the o-merge verdict).
+
+Leg conclusion: dispatch floor stays ~10/layer; the honest A4B endpoint on
+current WebGPU = quiet-window **10.52 ms = 95.0 tok/s** (84.4% of llama.cpp,
+same-bytes comparison). Next value: M5 recording, then M6 prefill GEMM (k13
+confirms webml's prefill recipe: subgroup-matrix, int8 codes, f16 tiles).

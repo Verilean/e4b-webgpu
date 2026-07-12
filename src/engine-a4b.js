@@ -151,8 +151,21 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
         return upload(device, v);
       })(),
       pes: await f32buf(p + "ffn_down_exps.scale"),
+      normCatO: await (async () => {
+        const parts = ["post_attention_norm.weight", "ffn_norm.weight",
+                       "ffn_gate_inp.scale", "pre_ffw_norm_2.weight"];
+        const cat = new Float32Array(4 * C.hidden);
+        for (let j = 0; j < 4; j++) {
+          const v = new Float32Array((await st.fetch(p + parts[j])).buf);
+          if (j === 2) { const m2 = 1 / Math.sqrt(C.hidden); for (let q2 = 0; q2 < v.length; q2++) v[q2] *= m2; }
+          cat.set(v, j * C.hidden);
+        }
+        return upload(device, cat);
+      })(),
       guExps: await q40(p + "ffn_gate_up_exps.weight"),
       downExps: await q40(p + "ffn_down_exps.weight"),
+      ppO: alloc(device, (C.hidden + 4) * 4),                  // per-layer (avoid a
+                                                               // cross-layer atomic RMW chain)
       kCache: alloc(device, MAXSEQ * kvHeads * headDim * 2),   // f16
       vCache: alloc(device, MAXSEQ * kvHeads * headDim * 2),
     };
@@ -179,6 +192,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     hidden: alloc(device, C.hidden * 4),
     hiddenB: alloc(device, C.hidden * 4),
     qPrep: alloc(device, 16 * C.hdFull * 4),
+    ppO: alloc(device, (C.hidden + 4) * 4),
     normed: alloc(device, C.hidden * 2),        // f16
     moeIn: alloc(device, C.hidden * 2),          // f16 (pre-ffw-2 normed)
     tmp: alloc(device, C.hidden * 4),
@@ -299,7 +313,6 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       run(l.attn, [A.qPrep, l.kCache, l.vCache, P, A.attnOut], [C.qHeads, 1]);
     }
     run(l.oMv, [A.dumX, l.o.nibBuf, l.o.scBuf, A.topkIdx, A.tmp, A.attnOut], wg(C.hidden, 2));
-    // fused: postAttn norm + residual + the ffn/router/pre-ffw-2 triple norm
     run(kern.rmsacc3, [A.tmp, l.postAttnNorm, l.ffnNorm, l.routerS, l.preFfw2,
         A.hidden, A.normed, A.routerIn, A.moeIn, A.hiddenB], 1);
     // dense and MoE branches interleaved: hazard-free neighbors overlap on GPU
