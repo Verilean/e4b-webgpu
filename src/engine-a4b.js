@@ -14,6 +14,7 @@ import { initDevice, upload, alloc, readback, Kernels } from "./gpu.js";
 
 const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => {});
 const MAXSEQ = 640;
+const ATTN2 = new URLSearchParams(globalThis.location?.search ?? "").get("attn2") === "1";
 
 // ---- repackers (q4_0 / q6_K planes; 18B and 210B blocks are not word-aligned) ----
 function repackQ40(buf) {
@@ -247,6 +248,10 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       KEQV: l.keqv ? 1 : 0, WG: 128 });
     l.attn = await K.pipeline("attnf32", { Q_HEADS: C.qHeads, KV_HEADS: l.kvHeads,
       HEAD_DIM: l.headDim, MAXSEQ, WINDOW: l.isSliding ? C.window : 0, DT: 1, WG: 256 });
+    l.attn2 = await K.pipeline("attn2f", { Q_HEADS: C.qHeads, KV_HEADS: l.kvHeads,
+      HEAD_DIM: l.headDim, MAXSEQ, WINDOW: l.isSliding ? C.window : 0,
+      ROPE_ANGLES: ra, THETA: theta, EPS: C.eps, KEQV: l.keqv ? 1 : 0,
+      WG: l.headDim === 512 ? 256 : 128 });
     l.tail = await K.pipeline("a4btail", { H: C.hidden, K: KEXP, EPS: C.eps,
       MUL: l.layerScalarVal.toPrecision(9), NEXT: l.i + 1 < C.layers ? 1 : 0, WG: 256 });
       l.rmsaccOne = await K.pipeline("rmsacc", { DIM: C.hidden, EPS: C.eps, MUL: "1.0", WG: 256 });
@@ -284,9 +289,13 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     // attention (layer 0 norms here; later layers get A.normed from the prev tail)
     if (l.i === 0) run(kern.rms, [A.hidden, l.attnNorm, A.tmp /*unused f32 y*/, A.dummySums, A.normed], 1);
     run(l.qkvMv, [A.dumX, l.qkvCat.nibBuf, l.qkvCat.scBuf, A.topkIdx, A.qkv, A.normed], wg(l.qkvRows, 4));
-    run(l.headprep, [A.qkv, l.qNorm, l.kNorm, P, l.kCache, l.vCache, A.dummySumI],
-        C.qHeads + 2 * l.kvHeads);
-    run(l.attn, [A.qkv, l.kCache, l.vCache, P, A.attnOut], [C.qHeads, 1]);
+    if (ATTN2) {
+      run(l.attn2, [A.qkv, l.qNorm, l.kNorm, P, l.kCache, l.vCache, A.attnOut], C.qHeads);
+    } else {
+      run(l.headprep, [A.qkv, l.qNorm, l.kNorm, P, l.kCache, l.vCache, A.dummySumI],
+          C.qHeads + 2 * l.kvHeads);
+      run(l.attn, [A.qkv, l.kCache, l.vCache, P, A.attnOut], [C.qHeads, 1]);
+    }
     run(l.oMv, [A.dumX, l.o.nibBuf, l.o.scBuf, A.topkIdx, A.tmp, A.attnOut], wg(C.hidden, 2));
     // fused: postAttn norm + residual + the ffn/router/pre-ffw-2 triple norm
     run(kern.rmsacc3, [A.tmp, l.postAttnNorm, l.ffnNorm, l.routerS, l.preFfw2,

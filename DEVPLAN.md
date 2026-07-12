@@ -511,3 +511,11 @@ trustworthy while the user works the machine. feedTok folded into the embed
 runs the full protocol (fresh resident, warmup, 3 walls, profile, gate) into
 harness/night.log. Best defensible numbers so far: profile 8.40 ms, wall 10.56
 = 94.7 tok/s (llama.cpp 8.89 / 112.5).
+
+## attn2f status (parked as ?attn2=1 opt-in)
+
+Headprep-absorbed attention (~−0.15 ms candidate): embed/prep verified, layer
+stats plausible-but-different; t==pos f16-parity fix applied but the gate still
+diverges at token 0 (magnitude beyond summation-order rounding — undiagnosed).
+Cost/benefit poor at 1.4% of wall — parked behind A4B_QUERY='?attn2=1'.
+Default path (headprep + attnf32) re-verified GATE PASS.

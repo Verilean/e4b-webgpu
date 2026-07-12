@@ -67,7 +67,7 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
       const enc0 = eng.device.createCommandEncoder();
       const p0 = enc0.beginComputePass();
       eng.mkRun(p0)(eng.kern.embed, [eng.model.embQl, eng.model.embQh, eng.model.embSc,
-        eng.model.embD, eng.A.params, eng.A.normed, eng.A.hidden], 1);
+        eng.model.embD, eng.A.params, eng.A.normed, eng.A.hidden, eng.A.amax], 1);
       p0.end(); eng.device.queue.submit([enc0.finish()]);
       let h = await eng.readHidden();
       L(`embed: meanAbs=${(h.reduce((a, b) => a + Math.abs(b), 0) / h.length).toFixed(4)} first4=${[...h.slice(0, 4)].map(x => x.toFixed(4))}`);

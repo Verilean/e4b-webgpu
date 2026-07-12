@@ -1,3 +1,4 @@
+enable f16;
 // A4B decode attention with head-prep ABSORBED (viable at DT=1: no tile
 // redundancy; k/v prep duplicated only QH/KVH× per kv head — cheap):
 // per WG (q-head h): q norm+rope → qs; k norm+rope → ks; v = v_norm(k slice if
@@ -10,9 +11,9 @@ enable subgroups;
 @group(0) @binding(1) var<storage, read> qw: array<f32>;       // q_norm
 @group(0) @binding(2) var<storage, read> kw: array<f32>;       // k_norm
 @group(0) @binding(3) var<storage, read> params: array<u32>;   // [0]=pos [1]=len
-@group(0) @binding(4) var<storage, read_write> kcache: array<vec4<f32>>;
-@group(0) @binding(5) var<storage, read_write> vcache: array<vec4<f32>>;
-@group(0) @binding(6) var<storage, read_write> outv: array<vec4<f32>>;
+@group(0) @binding(4) var<storage, read_write> kcache: array<vec4<f16>>;
+@group(0) @binding(5) var<storage, read_write> vcache: array<vec4<f16>>;
+@group(0) @binding(6) var<storage, read_write> outv: array<vec4<f16>>;
 
 var<workgroup> probs: array<f32, ${MAXSEQ}>;
 var<workgroup> sg8: array<f32, 8>;
@@ -91,8 +92,8 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   if (h == kvh * (${Q_HEADS}u / ${KV_HEADS}u)) {
     let cBase = (pos * ${KV_HEADS}u + kvh) * hd4;
     for (var d = lid; d < hd4; d = d + ${WG}u) {
-      kcache[cBase + d] = ks[d];
-      vcache[cBase + d] = vs[d];
+      kcache[cBase + d] = vec4<f16>(ks[d]);
+      vcache[cBase + d] = vec4<f16>(vs[d]);
     }
   }
 
@@ -103,10 +104,11 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   for (var t = start + lid; t < len; t = t + ${WG}u) {
     var s: f32 = 0.0;
     if (t == pos) {
-      for (var d: u32 = 0u; d < hd4; d = d + 1u) { s = s + dot(qs[d], ks[d]); }
+      // round through f16 to match what the cache path would have stored
+      for (var d: u32 = 0u; d < hd4; d = d + 1u) { s = s + dot(qs[d], vec4<f32>(vec4<f16>(ks[d]))); }
     } else {
       let kB = (t * ${KV_HEADS}u + kvh) * hd4;
-      for (var d: u32 = 0u; d < hd4; d = d + 1u) { s = s + dot(qs[d], kcache[kB + d]); }
+      for (var d: u32 = 0u; d < hd4; d = d + 1u) { s = s + dot(qs[d], vec4<f32>(kcache[kB + d])); }
     }
     probs[t] = s;
     m = max(m, s);
@@ -135,14 +137,14 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   let part = lid / tw;
   var acc = vec4f(0.0);
   for (var t = start + part; t < len; t = t + tp) {
-    if (t == pos) { acc = acc + probs[t] * vs[dl]; }
-    else { acc = acc + probs[t] * vcache[(t * ${KV_HEADS}u + kvh) * hd4 + dl]; }
+    if (t == pos) { acc = acc + probs[t] * vec4<f32>(vec4<f16>(vs[dl])); }
+    else { acc = acc + probs[t] * vec4<f32>(vcache[(t * ${KV_HEADS}u + kvh) * hd4 + dl]); }
   }
   vpart[lid] = acc;
   workgroupBarrier();
   if (lid < tw) {
     var v = vpart[lid];
     for (var p: u32 = 1u; p < tp; p = p + 1u) { v = v + vpart[lid + p * tw]; }
-    outv[h * hd4 + lid] = v / denom;
+    outv[h * hd4 + lid] = vec4<f16>(v / denom);
   }
 }
