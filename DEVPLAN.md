@@ -542,3 +542,31 @@ the (causal) attention of that layer.
 **Plan**: MTOK on activations (chunk buffers M×dim), M-looped q40 kernels,
 causal chunk attention (score matrix in workgroup memory per (head, token)),
 per-token router/MoE via grid, gate = batched-prefill → identical generation.
+
+## Analysis: why we WON on E4B but TRAIL on A4B (the format-assist finding)
+
+Byte accounting from the actual GGUF tensor tables settles it:
+
+| | llama.cpp reads | we read | winner's edge |
+|---|---|---|---|
+| E4B | **2.68 GB/token** (q4_0 GGUF: Q6_K lm_head = 551 MB + q4_0 body) | **2.09 GB/token** (QAT-mobile: int2 lm_head = 168 MB + per-channel int4 body) | we read **28% fewer bytes** |
+| A4B | 2.38 GB/token (q4_0 GGUF) | 2.38 GB/token (SAME file) | none — pure engine race |
+
+Effective bandwidth (bytes/wall): E4B — llama.cpp **275 GB/s** vs ours 260;
+A4B — llama.cpp **268 GB/s** vs ours 225.
+
+**Conclusion: our engine was never faster per byte than llama.cpp. The E4B
+victory came from the FORMAT — the QAT-mobile checkpoint (int2 tied lm_head,
+per-channel int4) simply reads 28% less than the q4_0 GGUF llama.cpp had to
+use. On A4B both engines read the identical file, which exposes the true
+engine-side deficit: ~2 ms/token of WebGPU dispatch-boundary cost (~310
+dispatches through Dawn validation + Metal fences) that llama.cpp's native
+command encoding does not pay.** (webml-E2B's headline numbers also ride the
+mobile-format byte advantage.)
+
+Paths to A4B parity, in honesty order: (1) eliminate boundary cost (structural;
+the §8 serialized-dispatch model, third confirmation), (2) a "compact variant"
+data point — requantize the tied Q6_K embed (605 MB/token, 25% of all reads!)
+to int4/int2 class — but that changes weights, forfeits token-exactness vs
+llama.cpp, and llama.cpp could do the same; it is a model-config win, not an
+engine win, and would be reported as a separate row, not a parity claim.
