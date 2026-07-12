@@ -343,3 +343,21 @@ stayed 9.4 ms while wall wobbled 11.6-14.9).
 
 Author time this leg (M0 12:33 → here): ~3.5 h wall including the 112.5-tok/s
 llama.cpp rebuild and all downloads.
+
+## Campaign 2 — M4 leg 2 (2026-07-08 evening)
+
+- q40gu: gate+up+geglu fused (dense + experts; f32 out, campaign-1 matvecgu2
+  shape) — best observed **11.47 ms = 87.2 tok/s**, GATE PASS (token-exact).
+- REJECTED with data: (1) top8 absorbed into the guExps prologue (redundant
+  per-WG top-8 ≈ the saved fence; neutral 11.47→11.69); (2) attn2f — headprep
+  absorbed into attention at DT=1 (campaign-1 att2 redux: neutral speed AND
+  broke the gate; not worth debugging a neutral lever — reverted, file kept).
+- **Measurement honesty**: the same binary measures 11.5–13.3 ms depending on
+  box state (swap 0, memory 90% free, no strays — pure clock/thermal variance;
+  fresh-tab vs aged-tab excluded by A/B). Serialized profile is stable at
+  ~9.2 ms throughout. Final Campaign-2 numbers need the campaign-1 protocol:
+  cold box, single shot, first run of the day.
+
+Status vs targets: best 87.2 / must-beat 112.5 (78%). Ranked remaining:
+downExps 183 GB/s (short rows), dense-down 172 GB/s (small dispatch),
+~12 fences/layer ≈ 2.2 ms gap, lm_head 388 GB/s ceiling-close.
