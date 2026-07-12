@@ -596,3 +596,20 @@ nightrun's.
   as the next leg.
 - k13 confirms subgroup-matrix is their PREFILL GEMM (M≥64, int8-code domain,
   f16 tiles, f32 accum, integer-exact) — validates M6/P6 as pre-registered.
+
+## Campaign 2 — QUIET-WINDOW TRUTH (nightrun, 2026-07-12 16:37, load 0.51 / WindowServer 0%)
+
+**Wall 10.52 ms = 95.0 tok/s** (runs 2-4: 10.60/10.52/10.55; run 1 = 12.20
+compile-warmup, discarded per protocol). **Profile 8.36 ms. GATE PASS.**
+
+Post-mortem of the gap (wall − profile = 2.16 ms over ~310 dispatches ≈ 7 µs
+each): the RMW fix did NOT move the quiet-window wall (10.56 pre-fix ≈ 10.52
+post) — the 87 µs RMW pathology of the 1-thread probe does not manifest at
+real dispatch sizes; the honest per-dispatch cost is the ~4-5 µs RAW fence +
+ramp, i.e. **境界税は本当だが ~5-7 µs/dispatch スケール** — matching webml's
+economics (316 ops → same tax). Removing it requires fewer dispatches: the
+webml k08 last-WG-merge pattern (matvec+norm+residual in one) is the scoped
+next leg (−3-4 dispatches/layer ⇒ est. −0.6-0.8 ms ⇒ ~102 tok/s).
+
+**A4B status vs targets: 95.0 / must-beat 112.5 = 84.4%** (llama.cpp reads the
+SAME bytes here — see the format-assist analysis; E4B's win was byte-assisted).
