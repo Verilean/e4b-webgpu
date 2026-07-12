@@ -227,9 +227,9 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     const theta = l.isSliding ? "10000.0" : "1000000.0";
     l.qkvMv = await mv(C.hidden, l.qkvRows);
     l.oMv = await mv(l.qOut, C.hidden);
-    l.guMv = await mv(C.hidden, 2 * C.inter);
+    l.guMv = await K.pipeline("q40gu", { IN: C.hidden, FF: C.inter, E: C.nExperts, K: KEXP, EXPERT: 0 });
     l.downMv = await mv(C.inter, C.hidden);
-    l.guExpsMv = await mv(C.hidden, 2 * C.expInter, { expert: 1 });
+    l.guExpsMv = await K.pipeline("q40gu", { IN: C.hidden, FF: C.expInter, E: C.nExperts, K: KEXP, EXPERT: 1 });
     l.downExpsMv = await mv(C.expInter, C.hidden, { expert: 1, xslot: 1 });
     l.headprep = await K.pipeline("headprep", { QH: C.qHeads, KVH: l.kvHeads,
       HEAD_DIM: l.headDim, ROPE_ANGLES: ra, THETA: theta, EPS: C.eps,
@@ -279,15 +279,12 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     // fused: postAttn norm + residual + the ffn/router/pre-ffw-2 triple norm
     run(kern.rmsacc3, [A.tmp, l.postAttnNorm, l.ffnNorm, l.routerS, l.preFfw2,
         A.hidden, A.normed, A.routerIn, A.moeOut], 1);
-    run(l.guMv, [A.normed, l.guCat.nibBuf, l.guCat.scBuf, A.topkIdx, A.gu], wg(2 * C.inter, 2));
-    run(kern.gegluDense, [{ buffer: A.gu, offset: 0, size: C.inter * 4 },
-        { buffer: A.gu, offset: C.inter * 4, size: C.inter * 4 }, A.geglu], wg(C.inter, 256));
+    run(l.guMv, [A.normed, l.guCat.nibBuf, l.guCat.scBuf, A.topkIdx, A.geglu], wg(C.inter, 4));
     run(l.downMv, [A.geglu, l.down.nibBuf, l.down.scBuf, A.topkIdx, A.tmp], wg(C.hidden, 2));
     run(kern.routerMv, [A.routerIn, l.routerW, A.onesE, A.srqZero, A.routerScores], C.nExperts);
     run(kern.top8, [A.routerScores, l.pes, A.topkIdx, A.topkW], 1);
-    run(l.guExpsMv, [A.moeOut, l.guExps.nibBuf, l.guExps.scBuf, A.topkIdx, A.guSlots],
-        [wg(2 * C.expInter, 2), 1, KEXP]);
-    run(kern.gegluSlots, [A.guSlots, A.gegluSlots], wg(KEXP * C.expInter, 256));
+    run(l.guExpsMv, [A.moeOut, l.guExps.nibBuf, l.guExps.scBuf, A.topkIdx, A.gegluSlots],
+        [wg(C.expInter, 4), 1, KEXP]);
     run(l.downExpsMv, [A.gegluSlots, l.downExps.nibBuf, l.downExps.scBuf, A.topkIdx, A.downSlots],
         [wg(C.hidden, 2), 1, KEXP]);
     // fused tail: moe-combine + postFfw1/2 + add + post norm + residual + scalar
