@@ -1,3 +1,4 @@
+enable f16;
 // Fused: hidden += rms(t)·wAcc (post-attention residual), then ONE reduction of
 // the new hidden feeding three scaled outputs (ffn-norm/router-in/pre-ffw-2).
 // Params: DIM, EPS, WG
@@ -8,9 +9,9 @@ enable subgroups;
 @group(0) @binding(3) var<storage, read> w2: array<f32>;
 @group(0) @binding(4) var<storage, read> w3: array<f32>;
 @group(0) @binding(5) var<storage, read_write> hidden: array<f32>;
-@group(0) @binding(6) var<storage, read_write> y1: array<f32>;
+@group(0) @binding(6) var<storage, read_write> y1: array<f16>;
 @group(0) @binding(7) var<storage, read_write> y2: array<f32>;
-@group(0) @binding(8) var<storage, read_write> y3: array<f32>;
+@group(0) @binding(8) var<storage, read_write> y3: array<f16>;
 var<workgroup> sg8: array<f32, 8>;
 var<workgroup> hs: array<f32, ${DIM}>;
 fn redAdd(lid: u32, v: f32) -> f32 {
@@ -42,8 +43,8 @@ fn main(@builtin(local_invocation_id) lid3: vec3<u32>) {
   let inv2 = pow(redAdd(lid, s2) / f32(${DIM}u) + ${EPS}, -0.5);
   for (var i = lid; i < ${DIM}u; i = i + ${WG}u) {
     let v = hs[i] * inv2;
-    y1[i] = v * w1[i];
+    y1[i] = f16(v * w1[i]);
     y2[i] = v * w2[i];
-    y3[i] = v * w3[i];
+    y3[i] = f16(v * w3[i]);
   }
 }

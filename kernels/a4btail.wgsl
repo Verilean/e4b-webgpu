@@ -1,3 +1,4 @@
+enable f16;
 // A4B layer tail, fused: mlp = rms(t1)·w1; moe = rms(m)·w2 (m pre-combined by
 // q40moedown); comb = mlp+moe; hidden = (hidden + rms(comb)·wp)·MUL; optional
 // NEXT-layer input norm. Params: H, K, EPS, MUL, NEXT, WG
@@ -9,7 +10,7 @@ enable subgroups;
 @group(0) @binding(4) var<storage, read> wp: array<f32>;       // post_ffw_norm
 @group(0) @binding(5) var<storage, read_write> hidden: array<f32>;
 @group(0) @binding(6) var<storage, read> wNext: array<f32>;    // next attn_norm
-@group(0) @binding(7) var<storage, read_write> yNext: array<f32>;
+@group(0) @binding(7) var<storage, read_write> yNext: array<f16>;
 var<workgroup> sg8: array<f32, 8>;
 var<workgroup> comb: array<f32, ${H}>;
 fn redAdd(lid: u32, v: f32) -> f32 {
@@ -58,7 +59,7 @@ fn main(@builtin(local_invocation_id) lid3: vec3<u32>) {
     let r4 = redAdd(lid, s4);
     let inv4 = pow(r4 / f32(${H}u) + ${EPS}, -0.5);
     for (var i = lid; i < ${H}u; i = i + ${WG}u) {
-      yNext[i] = comb[i] * inv4 * wNext[i];
+      yNext[i] = f16(comb[i] * inv4 * wNext[i]);
     }
   } else {
     _ = wNext[0];

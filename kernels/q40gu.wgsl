@@ -1,24 +1,27 @@
+enable f16;
 // Fused gate+up+geglu over q4_0 (f32 out): WG=128 = 4 subgroups; the WG owns 4
 // FFN elements e0..e0+3 (gate rows via sg 0-1, up rows via sg 2-3, R2 each).
 // EXPERT=1: expert base from topk[wid.z]. (A top8-absorbing prologue variant
 // was measured NEUTRAL — redundant per-WG top8 ≈ the saved fence — REJECTED.)
 // Params: IN, FF, E, K, EXPERT
 enable subgroups;
-@group(0) @binding(0) var<storage, read> x: array<vec4<f32>>;
+@group(0) @binding(0) var<storage, read> x: array<vec4<f16>>;
 @group(0) @binding(1) var<storage, read> w: array<vec4<u32>>;
 @group(0) @binding(2) var<storage, read> ws: array<u32>;
 @group(0) @binding(3) var<storage, read> topk: array<u32>;
-@group(0) @binding(4) var<storage, read_write> y: array<f32>;
+@group(0) @binding(4) var<storage, read_write> y: array<f32>;      // EXPERT=0
+@group(0) @binding(5) var<storage, read_write> yh: array<f16>;     // EXPERT=1 (halves
+                                                                   // the moedown x traffic)
 
 struct XU {
   e0: vec4f, o0: vec4f, e1: vec4f, o1: vec4f,
   e2: vec4f, o2: vec4f, e3: vec4f, o3: vec4f,
 };
 fn unpx(jb: u32) -> XU {
-  let x0 = x[jb * 8u];      let x1 = x[jb * 8u + 1u];
-  let x2 = x[jb * 8u + 2u]; let x3 = x[jb * 8u + 3u];
-  let x4 = x[jb * 8u + 4u]; let x5 = x[jb * 8u + 5u];
-  let x6 = x[jb * 8u + 6u]; let x7 = x[jb * 8u + 7u];
+  let x0 = vec4<f32>(x[jb * 8u]);      let x1 = vec4<f32>(x[jb * 8u + 1u]);
+  let x2 = vec4<f32>(x[jb * 8u + 2u]); let x3 = vec4<f32>(x[jb * 8u + 3u]);
+  let x4 = vec4<f32>(x[jb * 8u + 4u]); let x5 = vec4<f32>(x[jb * 8u + 5u]);
+  let x6 = vec4<f32>(x[jb * 8u + 6u]); let x7 = vec4<f32>(x[jb * 8u + 7u]);
   return XU(x0, x4, x1, x5, x2, x6, x3, x7);
 }
 fn bdot(wv: vec4<u32>, u: XU) -> f32 {
@@ -74,7 +77,8 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
     for (var k: u32 = 0u; k < 4u; k = k + 1u) {
       let g = vals[k];
       let gel = 0.5 * g * (1.0 + tanh(clamp(0.7978845608028654 * (g + 0.044715 * g*g*g), -20.0, 20.0)));
-      y[yb + e0 + k] = gel * vals[4u + k];
+      yh[yb + e0 + k] = f16(gel * vals[4u + k]);
     }
   }
+  _ = y[0]; _ = yh[0];
 }

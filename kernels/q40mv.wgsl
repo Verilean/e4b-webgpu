@@ -1,3 +1,4 @@
+enable f16;
 // Q4_0 matvec, f32 activations: y[o] = Σ_blocks d_b · Σ_{i∈b}(v_i−8)·x_i
 // Repacked layout: nibble plane (16B per 32-elem block; one vec4<u32> load = one
 // block) + f16 scale plane (2 per u32, unpack2x16float). 2-row interleaved
@@ -6,6 +7,7 @@
 // Params: IN, OUT, EXPERT(0/1), XSLOT(0/1: per-slot x offset), WG (32/64/128: WG/16 rows per WG)
 enable subgroups;
 @group(0) @binding(0) var<storage, read> x: array<vec4<f32>>;
+@group(0) @binding(5) var<storage, read> xh: array<vec4<f16>>;   // XF16=1 input
 @group(0) @binding(1) var<storage, read> w: array<vec4<u32>>;     // nibble plane
 @group(0) @binding(2) var<storage, read> ws: array<u32>;          // f16 scales, 2/word
 @group(0) @binding(3) var<storage, read> topk: array<u32>;        // [8] expert ids (EXPERT=1)
@@ -18,16 +20,19 @@ struct XU {
 
 // activation lanes matched to the nibble order (lo nibbles = even elements)
 fn unpx(xoff: u32, jb: u32) -> XU {
+  // q4_0 within-block order: lo-plane = elems 0..15, hi-plane = 16..31
+  if (${XF16}u == 1u) {
+    let x0 = vec4<f32>(xh[xoff + jb * 8u]);      let x1 = vec4<f32>(xh[xoff + jb * 8u + 1u]);
+    let x2 = vec4<f32>(xh[xoff + jb * 8u + 2u]); let x3 = vec4<f32>(xh[xoff + jb * 8u + 3u]);
+    let x4 = vec4<f32>(xh[xoff + jb * 8u + 4u]); let x5 = vec4<f32>(xh[xoff + jb * 8u + 5u]);
+    let x6 = vec4<f32>(xh[xoff + jb * 8u + 6u]); let x7 = vec4<f32>(xh[xoff + jb * 8u + 7u]);
+    return XU(x0, x4, x1, x5, x2, x6, x3, x7);
+  }
   let x0 = x[xoff + jb * 8u];      let x1 = x[xoff + jb * 8u + 1u];
   let x2 = x[xoff + jb * 8u + 2u]; let x3 = x[xoff + jb * 8u + 3u];
   let x4 = x[xoff + jb * 8u + 4u]; let x5 = x[xoff + jb * 8u + 5u];
   let x6 = x[xoff + jb * 8u + 6u]; let x7 = x[xoff + jb * 8u + 7u];
-  // q4_0 within-block order: nibble k of byte j = elements j (lo) and j+16 (hi)
-  // byte j of word m covers elements 4m+j… lo-plane = elems 0..15, hi = 16..31
-  return XU(vec4f(x0.x, x0.y, x0.z, x0.w), vec4f(x4.x, x4.y, x4.z, x4.w),
-            vec4f(x1.x, x1.y, x1.z, x1.w), vec4f(x5.x, x5.y, x5.z, x5.w),
-            vec4f(x2.x, x2.y, x2.z, x2.w), vec4f(x6.x, x6.y, x6.z, x6.w),
-            vec4f(x3.x, x3.y, x3.z, x3.w), vec4f(x7.x, x7.y, x7.z, x7.w));
+  return XU(x0, x4, x1, x5, x2, x6, x3, x7);
 }
 
 fn bdot(wv: vec4<u32>, u: XU) -> f32 {
@@ -50,7 +55,7 @@ fn scaleOf(base: u32, b: u32) -> f32 {
 
 @compute @workgroup_size(${WG})
 fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid3: vec3<u32>) {
-  _ = topk[0];                              // keep binding when EXPERT=0 (DCE)
+  _ = topk[0]; _ = x[0]; _ = xh[0];         // keep bindings across variants (DCE)
   let sg = lid3.x / 32u;
   let lane = lid3.x % 32u;
   let o0 = ((wid.y * 32768u + wid.x) * (${WG}u / 32u) + sg) * 2u;

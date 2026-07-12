@@ -77,7 +77,7 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
         // re-encode this layer only
         (function () {
           const run = eng.mkRun(pass);
-          eng.encodeLayerPub(run, l);
+          eng.encodeLayerPub(run, l, eng.A.params);
         })();
         pass.end(); eng.device.queue.submit([enc.finish()]);
         h = await eng.readHidden();
@@ -98,6 +98,42 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
       L(`profile total (serialized): ${(tot / 1000).toFixed(2)}ms`);
       for (const [lb, e] of rows.slice(0, 16))
         L(`  ${(e.us / 1000).toFixed(3)}ms x${e.n}  ${lb.slice(0, 100)}`);
+      return;
+    }
+    if (cmd.mode === "mvtest") {
+      // synthetic XF16 q40mv check: known f16 x into A.geglu, run l0.downMv,
+      // JS-recompute row 0 exactly from the repacked planes.
+      const { readback } = await import("./src/gpu.js");
+      const dev = eng.device, A = eng.A, l0 = eng.layers[0];
+      const N = eng.C.inter;                       // 2112
+      const xf = new Float16Array(N);
+      for (let i = 0; i < N; i++) xf[i] = ((i * 13 + 5) % 17 - 8) / 8;
+      dev.queue.writeBuffer(A.geglu, 0, xf.buffer.slice(0, N * 2));
+      {
+        const enc = dev.createCommandEncoder();
+        const pass = enc.beginComputePass();
+        pass.setPipeline(l0.downMv.pipeline);
+        pass.setBindGroup(0, eng.bindPub(l0.downMv, [A.mlpOut, l0.down.nibBuf, l0.down.scBuf, A.topkIdx, A.tmp, A.geglu]));
+        pass.dispatchWorkgroups(Math.ceil(eng.C.hidden / 2));
+        pass.end();
+        dev.queue.submit([enc.finish()]);
+      }
+      const y = new Float32Array(await readback(dev, A.tmp, 16));
+      const nib = new Uint8Array(await readback(dev, l0.down.nibBuf, N / 2));
+      const scw = new Uint16Array(await readback(dev, l0.down.scBuf, Math.ceil(N / 32 / 2) * 4));
+      const f16f = (h) => { const s2 = (h & 0x8000) ? -1 : 1, e = (h >> 10) & 31, m = h & 1023;
+        return e === 0 ? s2 * m * 2 ** -24 : (e === 31 ? NaN : s2 * (1 + m / 1024) * 2 ** (e - 15)); };
+      let acc = 0;
+      for (let b = 0; b < N / 32; b++) {
+        const d = f16f(scw[b]);
+        let bs = 0;
+        for (let j = 0; j < 16; j++) {
+          const byte = nib[b * 16 + j];
+          bs += ((byte & 15) - 8) * xf[b * 32 + j] + ((byte >> 4) - 8) * xf[b * 32 + 16 + j];
+        }
+        acc += d * bs;
+      }
+      L(`mvtest: yGpu[0]=${y[0]} yJS=${acc}`);
       return;
     }
     if (cmd.mode === "features") {

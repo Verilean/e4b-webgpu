@@ -1,10 +1,11 @@
+enable f16;
 // MoE down-projection, slot-combined: each WG owns 2 output rows and iterates
 // ALL K slots (expert rows via topk, per-slot input via x offset), emitting the
 // topkW-weighted SUM directly — no per-slot output buffer, no combine pass,
 // and 2rows×K×blocks lane-iterations (~100% lane utilization vs 69% for the
 // per-slot shape with 22-block rows). Params: IN(704), OUT(2816), K(8)
 enable subgroups;
-@group(0) @binding(0) var<storage, read> x: array<vec4<f32>>;    // [K][IN/4]
+@group(0) @binding(0) var<storage, read> x: array<vec4<f16>>;    // [K][IN/4] (f16)
 @group(0) @binding(1) var<storage, read> w: array<vec4<u32>>;
 @group(0) @binding(2) var<storage, read> ws: array<u32>;
 @group(0) @binding(3) var<storage, read> topk: array<u32>;
@@ -16,10 +17,10 @@ struct XU {
   e2: vec4f, o2: vec4f, e3: vec4f, o3: vec4f,
 };
 fn unpx(xoff: u32, jb: u32) -> XU {
-  let x0 = x[xoff + jb * 8u];      let x1 = x[xoff + jb * 8u + 1u];
-  let x2 = x[xoff + jb * 8u + 2u]; let x3 = x[xoff + jb * 8u + 3u];
-  let x4 = x[xoff + jb * 8u + 4u]; let x5 = x[xoff + jb * 8u + 5u];
-  let x6 = x[xoff + jb * 8u + 6u]; let x7 = x[xoff + jb * 8u + 7u];
+  let x0 = vec4<f32>(x[xoff + jb * 8u]);      let x1 = vec4<f32>(x[xoff + jb * 8u + 1u]);
+  let x2 = vec4<f32>(x[xoff + jb * 8u + 2u]); let x3 = vec4<f32>(x[xoff + jb * 8u + 3u]);
+  let x4 = vec4<f32>(x[xoff + jb * 8u + 4u]); let x5 = vec4<f32>(x[xoff + jb * 8u + 5u]);
+  let x6 = vec4<f32>(x[xoff + jb * 8u + 6u]); let x7 = vec4<f32>(x[xoff + jb * 8u + 7u]);
   return XU(x0, x4, x1, x5, x2, x6, x3, x7);
 }
 fn bdot(wv: vec4<u32>, u: XU) -> f32 {

@@ -440,3 +440,26 @@ Discipline: stop. Next session MUST open with the cold-box protocol run.**
 
 Leg summary: 13.3-band → 11.11 best (moedown, routertop, 16-token submits).
 Serialized kernel floor ≈ 9.4-9.6 ms. llama.cpp 8.89.
+
+## Campaign 2 — M4 leg 4 (2026-07-09): f16 activations — profile 9.6→8.60 ms, wall ~10.6 = 94 tok/s
+
+**Discipline change**: interactive-box wall noise (±1.5-2 ms) made wall A/B
+useless → switched to the serialized-profile total (±0.1-0.2 ms resolution) as
+the optimization metric; wall checked at milestones only.
+
+- qkv WG=64 (307-322 GB/s), moedown WG=64: profile −0.3.
+- **f16 activations end-to-end** (the x-LSU theory: matvec activation reads run
+  2-8× the weight bytes through the LSU; halving them lifts the q4_0 kernels):
+  gegluSlots, normed, moeIn, dense geglu, attnOut all stored f16 (producers
+  write f16; q40mv gains an XF16 template; routerIn and the final norm stay f32
+  for the router and Q6_K lm_head). **GATE STILL TOKEN-EXACT vs llama.cpp** —
+  consistent with llama.cpp's own q8_0-quantized activations being COARSER than
+  f16 on these paths. moedown 0.99→0.89, and the full set took the serialized
+  kernel total BELOW llama.cpp's wall: 8.60 vs 8.89.
+- Fourth silent-edit incident (unpx pattern mismatch → XF16 read a dummy buffer
+  → "104 tok/s"-class garbage); the synthetic mvtest (JS-exact row recompute)
+  pinned it in one run. EVERY kernel-edit python block now asserts its anchors.
+
+Remaining gap = wall−profile ≈ 2.0 ms (submit/fence side): ~11 dispatches ×
+30 layers; llama.cpp wall 8.89. Levers: further dispatch cuts, and the ambient
+CPU contention (the measurement box runs an interactive session).

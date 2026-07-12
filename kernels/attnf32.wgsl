@@ -9,7 +9,7 @@ enable subgroups;
 @group(0) @binding(1) var<storage, read> kcache: array<vec4<f16>>;
 @group(0) @binding(2) var<storage, read> vcache: array<vec4<f16>>;
 @group(0) @binding(3) var<storage, read> params: array<u32>;   // [1]=cacheLen
-@group(0) @binding(4) var<storage, read_write> outv: array<vec4<f32>>;
+@group(0) @binding(4) var<storage, read_write> outv: array<vec4<f16>>;
 
 var<workgroup> probs: array<f32, ${MAXSEQ}>;
 var<workgroup> red: array<f32, ${WG}>;
@@ -70,6 +70,6 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   if (lid.x < tw) {
     var v = vpart[lid.x];
     for (var p: u32 = 1u; p < tp; p = p + 1u) { v = v + vpart[lid.x + p * tw]; }
-    outv[qBase + d0 + lid.x] = v / denom;
+    outv[qBase + d0 + lid.x] = vec4<f16>(v / denom);
   }
 }
