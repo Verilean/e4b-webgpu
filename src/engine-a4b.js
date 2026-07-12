@@ -187,6 +187,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     downSlots: alloc(device, KEXP * C.hidden * 4),
     routerIn: alloc(device, C.hidden * 4),
     routerScores: alloc(device, 128 * 4),
+    routerCtr: alloc(device, 16),
     topkIdx: alloc(device, KEXP * 4),
     topkW: alloc(device, KEXP * 4),
     logits: alloc(device, C.vocab * 4),
@@ -211,8 +212,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     lmHead: await K.pipeline("q6k", { N: C.hidden, OUT: C.vocab, MODE: 1, TILE: 128,
       MULT: "1.0", SOFTCAP: C.softcap.toFixed(1) }),
     rms: await K.pipeline("rmsnorm", { DIM: C.hidden, EPS: C.eps, WITH_SCALE: 1, SUMOUT: 0, WG: 256 }),
-    routerMv: await K.pipeline("matvec2f", { BITS: 32, IN: C.hidden, OUT: C.nExperts, WG: 64, SOFTCAP: "0.0" }),
-    top8: await K.pipeline("top8", { E: C.nExperts, K: KEXP }),
+    routerTop: await K.pipeline("routertop", { H: C.hidden, E: C.nExperts, K: KEXP, WG: 64 }),
     gegluDense: await K.pipeline("geglumul", { N: C.inter, WG: 256 }),
     gegluSlots: await K.pipeline("geglusl", { FF: C.expInter, K: KEXP, WG: 256 }),
     rms3: await K.pipeline("rms3", { DIM: C.hidden, EPS: C.eps, WG: 256 }),
@@ -230,7 +230,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     l.guMv = await K.pipeline("q40gu", { IN: C.hidden, FF: C.inter, E: C.nExperts, K: KEXP, EXPERT: 0 });
     l.downMv = await mv(C.inter, C.hidden);
     l.guExpsMv = await K.pipeline("q40gu", { IN: C.hidden, FF: C.expInter, E: C.nExperts, K: KEXP, EXPERT: 1 });
-    l.downExpsMv = await mv(C.expInter, C.hidden, { expert: 1, xslot: 1 });
+    l.downExpsMv = await K.pipeline("q40moedown", { IN: C.expInter, OUT: C.hidden, K: KEXP });
     l.headprep = await K.pipeline("headprep", { QH: C.qHeads, KVH: l.kvHeads,
       HEAD_DIM: l.headDim, ROPE_ANGLES: ra, THETA: theta, EPS: C.eps,
       KEQV: l.keqv ? 1 : 0, WG: 128 });
@@ -281,15 +281,15 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
         A.hidden, A.normed, A.routerIn, A.moeOut], 1);
     run(l.guMv, [A.normed, l.guCat.nibBuf, l.guCat.scBuf, A.topkIdx, A.geglu], wg(C.inter, 4));
     run(l.downMv, [A.geglu, l.down.nibBuf, l.down.scBuf, A.topkIdx, A.tmp], wg(C.hidden, 2));
-    run(kern.routerMv, [A.routerIn, l.routerW, A.onesE, A.srqZero, A.routerScores], C.nExperts);
-    run(kern.top8, [A.routerScores, l.pes, A.topkIdx, A.topkW], 1);
+    run(kern.routerTop, [A.routerIn, l.routerW, l.pes, A.routerScores, A.routerCtr,
+        A.topkIdx, A.topkW], C.nExperts);
     run(l.guExpsMv, [A.moeOut, l.guExps.nibBuf, l.guExps.scBuf, A.topkIdx, A.gegluSlots],
         [wg(C.expInter, 4), 1, KEXP]);
-    run(l.downExpsMv, [A.gegluSlots, l.downExps.nibBuf, l.downExps.scBuf, A.topkIdx, A.downSlots],
-        [wg(C.hidden, 2), 1, KEXP]);
-    // fused tail: moe-combine + postFfw1/2 + add + post norm + residual + scalar
+    run(l.downExpsMv, [A.gegluSlots, l.downExps.nibBuf, l.downExps.scBuf, A.topkIdx, A.topkW,
+        A.moeOut], wg(C.hidden, 2));
+    // fused tail: postFfw1/2 + add + post norm + residual + scalar (+ next norm)
     const nx = layers[l.i + 1];
-    run(l.tail, [A.tmp, l.postFfw1, A.downSlots, A.topkW, l.postFfw2, l.postFfw, A.hidden,
+    run(l.tail, [A.tmp, l.postFfw1, A.moeOut, l.postFfw2, l.postFfw, A.hidden,
         nx ? nx.attnNorm : l.attnNorm, A.normed], 1);
   }
 

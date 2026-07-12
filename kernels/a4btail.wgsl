@@ -1,20 +1,15 @@
-// A4B layer tail, fused (replaces moecomb + rms(postFfw1) + rms(postFfw2) +
-// acc + rmsaccMul = 5 dispatches):
-//   mlp_i  = rms(t1)·w1_i
-//   moe_i  = rms(m)·w2_i where m_i = Σ_k tkw[k]·slots[k*H+i]
-//   comb_i = mlp_i + moe_i
-//   hidden = (hidden + rms(comb)·wp) * MUL
-// One WG; staged vectors in workgroup memory. Params: H, K, EPS, MUL, WG
+// A4B layer tail, fused: mlp = rms(t1)·w1; moe = rms(m)·w2 (m pre-combined by
+// q40moedown); comb = mlp+moe; hidden = (hidden + rms(comb)·wp)·MUL; optional
+// NEXT-layer input norm. Params: H, K, EPS, MUL, NEXT, WG
 enable subgroups;
 @group(0) @binding(0) var<storage, read> t1: array<f32>;       // dense-down out
 @group(0) @binding(1) var<storage, read> w1: array<f32>;       // post_ffw_norm_1
-@group(0) @binding(2) var<storage, read> slots: array<f32>;    // [K][H] expert downs
-@group(0) @binding(3) var<storage, read> tkw: array<f32>;      // [K]
-@group(0) @binding(4) var<storage, read> w2: array<f32>;       // post_ffw_norm_2
-@group(0) @binding(5) var<storage, read> wp: array<f32>;       // post_ffw_norm
-@group(0) @binding(6) var<storage, read_write> hidden: array<f32>;
-@group(0) @binding(7) var<storage, read> wNext: array<f32>;    // next attn_norm
-@group(0) @binding(8) var<storage, read_write> yNext: array<f32>;
+@group(0) @binding(2) var<storage, read> m: array<f32>;       // combined moe down
+@group(0) @binding(3) var<storage, read> w2: array<f32>;       // post_ffw_norm_2
+@group(0) @binding(4) var<storage, read> wp: array<f32>;       // post_ffw_norm
+@group(0) @binding(5) var<storage, read_write> hidden: array<f32>;
+@group(0) @binding(6) var<storage, read> wNext: array<f32>;    // next attn_norm
+@group(0) @binding(7) var<storage, read_write> yNext: array<f32>;
 var<workgroup> sg8: array<f32, 8>;
 var<workgroup> comb: array<f32, ${H}>;
 fn redAdd(lid: u32, v: f32) -> f32 {
@@ -35,10 +30,9 @@ fn main(@builtin(local_invocation_id) lid3: vec3<u32>) {
   for (var i = lid; i < ${H}u; i = i + ${WG}u) {
     let a = t1[i];
     s1 = s1 + a * a;
-    var m: f32 = 0.0;
-    for (var k: u32 = 0u; k < ${K}u; k = k + 1u) { m = m + tkw[k] * slots[k * ${H}u + i]; }
-    comb[i] = m;                                 // stash moe-combined
-    s2 = s2 + m * m;
+    let mv = m[i];
+    comb[i] = mv;
+    s2 = s2 + mv * mv;
   }
   let r1 = redAdd(lid, s1);
   let r2 = redAdd(lid, s2);
