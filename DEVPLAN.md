@@ -519,3 +519,26 @@ stats plausible-but-different; t==pos f16-parity fix applied but the gate still
 diverges at token 0 (magnitude beyond summation-order rounding — undiagnosed).
 Cost/benefit poor at 1.4% of wall — parked behind A4B_QUERY='?attn2=1'.
 Default path (headprep + attnf32) re-verified GATE PASS.
+
+---
+
+# Campaign 2 — M6: batched prefill (started 2026-07-12)
+
+Prefill is token-by-token today: a P-token prompt costs P × ~10.6 ms (20-token
+gate prompts ≈ 210 ms; a 512-token prompt ≈ 5.4 s). Layer-wise batching removes
+the serial-through-layers structure: all tokens advance one LAYER at a time —
+matvecs widen to M columns (toward GEMM), K/V for the whole chunk lands before
+the (causal) attention of that layer.
+
+**Pre-registered predictions:**
+- P5: a first, subgroup-matrix-FREE batched prefill (M-column loops on the
+  existing q4_0 kernels) lands at **≥4× prefill throughput at M=20** and ≥6× at
+  M=64 (utilization, amortized weight reads), with generation tokens after a
+  batched prefill IDENTICAL to the token-by-token gate (the correctness bar).
+- P6: adding subgroup-matrix (chromium-experimental) to the batched path buys a
+  further ≥2× at M≥64 (compute-bound regime begins) — deferred until P5 holds.
+- P7: author time — P5 within one focused leg (~2-3 h).
+
+**Plan**: MTOK on activations (chunk buffers M×dim), M-looped q40 kernels,
+causal chunk attention (score matrix in workgroup memory per (head, token)),
+per-token router/MoE via grid, gate = batched-prefill → identical generation.
