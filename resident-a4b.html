@@ -1,0 +1,115 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>a4b resident harness</title></head><body>
+<script type="module">
+// Resident A4B harness: loads 14.4GB ONCE, then long-polls /cmd and executes
+// commands — kernel edits are picked up per command without weight reloads.
+// Commands (POST /cmd, JSON):
+//   {"mode":"gate","n":24[,"p":1]}   token match vs goldens-a4b.json (llama.cpp greedy)
+//   {"mode":"bench","n":64}          pipelined decode timing
+//   {"mode":"stats"}                 per-layer hidden meanAbs (NaN/explosion check)
+//   {"mode":"reload"}                re-fetch kernels + rebuild pipelines
+//   {"mode":"logits"}                step-0 top-8 logits for prompt 0
+import { loadEngineA4B } from "./src/engine-a4b.js";
+const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => {});
+
+(async () => {
+  let eng;
+  try {
+    const t0 = performance.now();
+    eng = await loadEngineA4B();
+    L(`RESIDENT READY in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+    L("DONE");
+  } catch (e) { L("ERROR: " + (e && (e.stack || e.message) || e)); return; }
+  const goldens = await (await fetch("goldens/goldens-a4b.json")).json();
+
+  async function runCmd(cmd) {
+    const t0 = performance.now();
+    if (cmd.mode === "reload") {
+      await eng.rebuildPipelines();
+      L("kernels reloaded");
+      return;
+    }
+    if (cmd.mode === "gate") {
+      const nNew = cmd.n ?? 24;
+      let allPass = true;
+      for (let pi = 0; pi < goldens.prompts.length; pi++) {
+        if (cmd.p !== undefined && pi !== cmd.p) continue;
+        const g = goldens.prompts[pi];
+        const want = g.generated_ids.slice(0, nNew);
+        const got = await eng.generateFast(g.input_ids, want.length);
+        const match = got.length === want.length && got.every((t, i) => t === want[i]);
+        allPass = allPass && match;
+        L(`[p${pi}] ${match ? "MATCH" : "MISMATCH"} got=${JSON.stringify(got)} want=${JSON.stringify(want)}`);
+        if (!match) L(`[p${pi}] first divergence at ${got.findIndex((t, i) => t !== want[i])}`);
+      }
+      L(allPass ? "GATE PASS" : "GATE FAIL");
+      return;
+    }
+    if (cmd.mode === "bench") {
+      const g = goldens.prompts[0];
+      let pos = 0;
+      for (const t of g.input_ids) await eng.step(t, pos++);
+      const n = cmd.n ?? 64;
+      const t1 = performance.now();
+      eng.decodeChunk(pos, n, 0);
+      await eng.device.queue.onSubmittedWorkDone();
+      const total = performance.now() - t1;
+      L(`decode: ${(total / n).toFixed(2)}ms/token  ${(1000 / (total / n)).toFixed(1)} tok/s  (n=${n})`);
+      return;
+    }
+    if (cmd.mode === "stats") {
+      // per-layer hidden meanAbs on prompt-0 last token (submit layer by layer)
+      const g = goldens.prompts[0];
+      let pos = 0;
+      for (const t of g.input_ids.slice(0, -1)) await eng.step(t, pos++);
+      eng.device.queue.writeBuffer(eng.A.params, 0,
+        new Uint32Array([pos, pos + 1, g.input_ids[g.input_ids.length - 1], 0]));
+      const enc0 = eng.device.createCommandEncoder();
+      const p0 = enc0.beginComputePass();
+      eng.mkRun(p0)(eng.kern.embed, [eng.model.embQl, eng.model.embQh, eng.model.embSc,
+        eng.model.embD, eng.A.params, eng.A.normed, eng.A.hidden], 1);
+      p0.end(); eng.device.queue.submit([enc0.finish()]);
+      let h = await eng.readHidden();
+      L(`embed: meanAbs=${(h.reduce((a, b) => a + Math.abs(b), 0) / h.length).toFixed(4)} first4=${[...h.slice(0, 4)].map(x => x.toFixed(4))}`);
+      for (const l of eng.layers) {
+        const enc = eng.device.createCommandEncoder();
+        const pass = enc.beginComputePass();
+        // re-encode this layer only
+        (function () {
+          const run = eng.mkRun(pass);
+          eng.encodeLayerPub(run, l);
+        })();
+        pass.end(); eng.device.queue.submit([enc.finish()]);
+        h = await eng.readHidden();
+        const ma = h.reduce((a, b) => a + Math.abs(b), 0) / h.length;
+        L(`layer${l.i}: meanAbs=${ma.toFixed(4)} first4=${[...h.slice(0, 4)].map(x => x.toFixed(4))}`);
+        if (!isFinite(ma)) break;
+      }
+      return;
+    }
+    if (cmd.mode === "logits") {
+      const g = goldens.prompts[0];
+      let pos = 0;
+      for (const t of g.input_ids) await eng.step(t, pos++);
+      const { readback } = await import("./src/gpu.js");
+      const logits = new Float32Array(await readback(eng.device, eng.A.logits, eng.C.vocab * 4));
+      const idx = [...logits.keys()].sort((a, b) => logits[b] - logits[a]).slice(0, 8);
+      L("top8: " + idx.map((i) => `${i}:${logits[i].toFixed(3)}`).join(" "));
+      return;
+    }
+    L("unknown mode " + cmd.mode);
+  }
+
+  while (true) {
+    try {
+      const r = await fetch("/cmd");
+      if (r.status !== 200) continue;
+      const cmd = JSON.parse(await r.text());
+      if (cmd.mode === "ping") { L("pong"); L("DONE"); continue; }
+      try { await runCmd(cmd); } catch (e) { L("ERROR: " + (e && (e.stack || e.message) || e)); }
+      L("DONE");
+    } catch (e) { await new Promise((res) => setTimeout(res, 1000)); }
+  }
+})();
+</script>
+</body></html>

@@ -1,0 +1,336 @@
+// Gemma-4 26B-A4B (MoE) decoder on WebGPU — GGUF q4_0 direct load.
+// Semantics verified against transformers 5.13 modeling_gemma4.py and the
+// llama.cpp gemma4 graph (refs/llama.cpp-diffusiongemma/src/models/gemma4-common.h):
+//   layer: inNorm→attn→postAttnNorm→+res;
+//          dense: ffnNorm→gate/up(2112)→geglu→down→postFfw1  (parallel with)
+//          moe:   router(raw residual)→top8; preFfw2→gate_up_exps→geglu→down_exps
+//                 →Σ topkW[k](incl per-expert scale)→postFfw2;
+//          combined=mlp+moe → postFfwNorm → +res → ×layer_output_scale
+//   full-attn layers: k_eq_v (no v_proj; V = v_norm(k_proj out), no rope), 2 kv
+//   heads × 512, proportional rope 64 angles θ=1M; sliding: 8 kv × 256, θ=10k.
+//   lm_head = token_embd (Q6_K, tied), final softcap 30.
+import { openGGUF } from "./gguf.js";
+import { initDevice, upload, alloc, readback, Kernels } from "./gpu.js";
+
+const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => {});
+const MAXSEQ = 640;
+
+// ---- repackers (q4_0 / q6_K planes; 18B and 210B blocks are not word-aligned) ----
+function repackQ40(buf) {
+  const nb = buf.byteLength / 18;
+  const src = new Uint8Array(buf);
+  const nib = new Uint8Array(nb * 16);
+  const sc = new Uint16Array(nb + (nb & 1));         // pad to word
+  for (let b = 0; b < nb; b++) {
+    sc[b] = src[b * 18] | (src[b * 18 + 1] << 8);
+    nib.set(src.subarray(b * 18 + 2, b * 18 + 18), b * 16);
+  }
+  return { nib, sc };
+}
+function repackQ6K(buf) {
+  const nb = buf.byteLength / 210;
+  const src = new Uint8Array(buf);
+  const ql = new Uint8Array(nb * 128);
+  const qh = new Uint8Array(nb * 64);
+  const sc = new Uint8Array(nb * 16);
+  const d = new Uint16Array(nb + (nb & 1));
+  for (let b = 0; b < nb; b++) {
+    const o = b * 210;
+    ql.set(src.subarray(o, o + 128), b * 128);
+    qh.set(src.subarray(o + 128, o + 192), b * 64);
+    sc.set(src.subarray(o + 192, o + 208), b * 16);
+    d[b] = src[o + 208] | (src[o + 209] << 8);
+  }
+  return { ql, qh, sc, d };
+}
+
+export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.gguf") {
+  const t0 = performance.now();
+  const st = await openGGUF(ggufUrl);
+  const device = await initDevice();
+  const K = new Kernels(device);
+  const kvOf = (k) => st.kv[k];
+
+  const C = {
+    hidden: kvOf("gemma4.embedding_length"),           // 2816
+    layers: kvOf("gemma4.block_count"),                // 30
+    qHeads: kvOf("gemma4.attention.head_count"),       // 16
+    inter: kvOf("gemma4.feed_forward_length"),         // 2112
+    expInter: kvOf("gemma4.expert_feed_forward_length"), // 704
+    nExperts: kvOf("gemma4.expert_count"),             // 128
+    topK: kvOf("gemma4.expert_used_count"),            // 8
+    vocab: 262144,
+    window: kvOf("gemma4.attention.sliding_window"),   // 1024
+    eps: kvOf("gemma4.attention.layer_norm_rms_epsilon"),
+    softcap: kvOf("gemma4.final_logit_softcapping"),   // 30
+    hdFull: kvOf("gemma4.attention.key_length"),       // 512
+    hdSwa: kvOf("gemma4.attention.key_length_swa"),    // 256
+    kvHeadsPerLayer: kvOf("gemma4.attention.head_count_kv"),  // [30]
+    swaPattern: kvOf("gemma4.attention.sliding_window_pattern"), // [30] 1=swa
+  };
+
+  // ---- upload helpers ----
+  const f32buf = async (name) => upload(device, new Float32Array((await st.fetch(name)).buf));
+  const scalarOf = async (name) => new Float32Array((await st.fetch(name)).buf)[0];
+  async function q40(name) {
+    const t = await st.fetch(name);
+    const { nib, sc } = repackQ40(t.buf);
+    return { dims: t.dims, nibBuf: upload(device, nib), scBuf: upload(device, sc) };
+  }
+
+  L("loading weights (GGUF q4_0 → repacked planes)…");
+  const emb = repackQ6K((await st.fetch("token_embd.weight")).buf);
+  const model = {
+    embQl: upload(device, emb.ql), embQh: upload(device, emb.qh),
+    embSc: upload(device, emb.sc), embD: upload(device, emb.d),
+    outNorm: await f32buf("output_norm.weight"),
+  };
+
+  const layers = [];
+  for (let i = 0; i < C.layers; i++) {
+    const p = `blk.${i}.`;
+    const isSliding = C.swaPattern[i] === true || C.swaPattern[i] === 1;
+    const headDim = isSliding ? C.hdSwa : C.hdFull;
+    const kvHeads = C.kvHeadsPerLayer[i];
+    const l = {
+      i, isSliding, headDim, kvHeads,
+      keqv: !isSliding,                                  // full layers: V = K proj
+      attnNorm: await f32buf(p + "attn_norm.weight"),
+      postAttnNorm: await f32buf(p + "post_attention_norm.weight"),
+      qNorm: await f32buf(p + "attn_q_norm.weight"),
+      kNorm: await f32buf(p + "attn_k_norm.weight"),
+      q: await q40(p + "attn_q.weight"),
+      k: await q40(p + "attn_k.weight"),
+      o: await q40(p + "attn_output.weight"),
+      ffnNorm: await f32buf(p + "ffn_norm.weight"),
+      gate: await q40(p + "ffn_gate.weight"),
+      up: await q40(p + "ffn_up.weight"),
+      down: await q40(p + "ffn_down.weight"),
+      postFfw: await f32buf(p + "post_ffw_norm.weight"),
+      postFfw1: await f32buf(p + "post_ffw_norm_1.weight"),
+      postFfw2: await f32buf(p + "post_ffw_norm_2.weight"),
+      preFfw2: await f32buf(p + "pre_ffw_norm_2.weight"),
+      layerScalarVal: await scalarOf(p + "layer_output_scale.weight"),
+      routerW: await f32buf(p + "ffn_gate_inp.weight"),
+      routerS: await f32buf(p + "ffn_gate_inp.scale"),
+      pes: await f32buf(p + "ffn_down_exps.scale"),
+      guExps: await q40(p + "ffn_gate_up_exps.weight"),
+      downExps: await q40(p + "ffn_down_exps.weight"),
+      kCache: alloc(device, MAXSEQ * kvHeads * headDim * 4),
+      vCache: alloc(device, MAXSEQ * kvHeads * headDim * 4),
+    };
+    if (!l.keqv) l.v = await q40(p + "attn_v.weight");
+    l.qOut = l.q.dims[1];                                // rows
+    l.kvOut = l.k.dims[1];
+    layers.push(l);
+    if (i % 5 === 0) L(`  layer ${i}/${C.layers} (${((performance.now() - t0) / 1000).toFixed(0)}s)`);
+  }
+  L(`weights on GPU in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+
+  // ---- activation buffers ----
+  const KEXP = C.topK;
+  const bgCache = new Map();
+  const A = {
+    params: alloc(device, 16),
+    hidden: alloc(device, C.hidden * 4),
+    normed: alloc(device, C.hidden * 4),
+    tmp: alloc(device, C.hidden * 4),
+    mlpOut: alloc(device, C.hidden * 4),
+    moeOut: alloc(device, C.hidden * 4),
+    qkv: alloc(device, (16 * C.hdFull + 2 * 2 * C.hdFull) * 4),   // worst case
+    attnOut: alloc(device, 16 * C.hdFull * 4),
+    gu: alloc(device, 2 * C.inter * 4),
+    geglu: alloc(device, C.inter * 4),
+    guSlots: alloc(device, KEXP * 2 * C.expInter * 4),
+    gegluSlots: alloc(device, KEXP * C.expInter * 4),
+    downSlots: alloc(device, KEXP * C.hidden * 4),
+    topkIdx: alloc(device, KEXP * 4),
+    topkW: alloc(device, KEXP * 4),
+    logits: alloc(device, C.vocab * 4),
+    amax: alloc(device, 16),
+    amaxPart: alloc(device, 256 * 8),
+    tokRing: alloc(device, 1024 * 8),
+    dummySums: alloc(device, 16),
+    dummySumI: alloc(device, 16),
+  };
+
+  // ---- pipelines (re-callable: kernel hot-reload without reloading weights) ----
+  const kern = {};
+  async function rebuildPipelines(Knew) {
+    const K = Knew ?? new Kernels(device);
+    const mv = (IN, OUT, opts = {}) => K.pipeline("q40mv", {
+      IN, OUT, EXPERT: opts.expert ? 1 : 0, XSLOT: opts.xslot ? 1 : 0, WG: 32 });
+    Object.assign(kern, {
+    embed: await K.pipeline("q6k", { N: C.hidden, OUT: C.hidden, MODE: 0, TILE: 64,
+      MULT: Math.sqrt(C.hidden).toFixed(8), SOFTCAP: "0.0" }),
+    lmHead: await K.pipeline("q6k", { N: C.hidden, OUT: C.vocab, MODE: 1, TILE: 64,
+      MULT: "1.0", SOFTCAP: C.softcap.toFixed(1) }),
+    rms: await K.pipeline("rmsnorm", { DIM: C.hidden, EPS: C.eps, WITH_SCALE: 1, SUMOUT: 0, WG: 256 }),
+    router: await K.pipeline("router", { H: C.hidden, E: C.nExperts, K: KEXP, EPS: C.eps, WG: 128 }),
+    gegluDense: await K.pipeline("geglumul", { N: C.inter, WG: 256 }),
+    gegluSlots: await K.pipeline("geglusl", { FF: C.expInter, K: KEXP, WG: 256 }),
+    moeComb: await K.pipeline("moecomb", { H: C.hidden, K: KEXP, WG: 256 }),
+    accH: await K.pipeline("acc", { N: C.hidden, WG: 256 }),
+    argmax0: await K.pipeline("argmax2", { N: C.vocab, PARTS: 256, STAGE: 0, WG: 256 }),
+    argmax1: await K.pipeline("argmax2", { N: C.vocab, PARTS: 256, STAGE: 1, WG: 256 }),
+    feedTok: await K.pipeline("feedtok", {}),
+    });
+    for (const l of layers) {
+    const ra = l.isSliding ? l.headDim / 2 : Math.floor(0.25 * l.headDim / 2);
+    const theta = l.isSliding ? "10000.0" : "1000000.0";
+    l.qMv = await mv(C.hidden, l.qOut);
+    l.kMv = await mv(C.hidden, l.kvOut);
+    if (!l.keqv) l.vMv = await mv(C.hidden, l.kvOut);
+    l.oMv = await mv(l.qOut, C.hidden);
+    l.gateMv = await mv(C.hidden, C.inter);
+    l.upMv = await mv(C.hidden, C.inter);
+    l.downMv = await mv(C.inter, C.hidden);
+    l.guExpsMv = await mv(C.hidden, 2 * C.expInter, { expert: 1 });
+    l.downExpsMv = await mv(C.expInter, C.hidden, { expert: 1, xslot: 1 });
+    l.headprep = await K.pipeline("headprep", { QH: C.qHeads, KVH: l.kvHeads,
+      HEAD_DIM: l.headDim, ROPE_ANGLES: ra, THETA: theta, EPS: C.eps,
+      KEQV: l.keqv ? 1 : 0, WG: 128 });
+    l.attn = await K.pipeline("attnf32", { Q_HEADS: C.qHeads, KV_HEADS: l.kvHeads,
+      HEAD_DIM: l.headDim, MAXSEQ, WINDOW: l.isSliding ? C.window : 0, DT: 1, WG: 256 });
+    l.rmsaccMul = await K.pipeline("rmsacc", { DIM: C.hidden, EPS: C.eps,
+      MUL: l.layerScalarVal.toPrecision(9), WG: 256 });
+      l.rmsaccOne = await K.pipeline("rmsacc", { DIM: C.hidden, EPS: C.eps, MUL: "1.0", WG: 256 });
+    }
+    bgCache.clear();
+  }
+  await rebuildPipelines(K);
+  L("pipelines built");
+
+  function bind(kernEntry, buffers) {
+    const key = kernEntry.pipeline.label + "|" + buffers.map((b) => {
+      const buf = b.buffer ?? b;
+      return (buf.__id ?? (buf.__id = Math.random())) + ":" + (b.offset ?? 0);
+    }).join(",");
+    let bg = bgCache.get(key);
+    if (!bg) {
+      bg = device.createBindGroup({
+        layout: kernEntry.pipeline.getBindGroupLayout(0),
+        entries: buffers.map((b, i) => ({ binding: i,
+          resource: b.buffer ? { buffer: b.buffer, offset: b.offset, size: b.size } : { buffer: b } })),
+      });
+      bgCache.set(key, bg);
+    }
+    return bg;
+  }
+  const mkRun = (pass) => (k, bufs, groups) => {
+    pass.setPipeline(k.pipeline); pass.setBindGroup(0, bind(k, bufs));
+    pass.dispatchWorkgroups(...(Array.isArray(groups) ? groups : [groups]));
+  };
+  const wg = (n, w) => Math.ceil(n / w);
+  const wg2 = (rows) => rows <= 32768 ? [rows] : [32768, Math.ceil(rows / 32768)];
+
+  function encodeLayer(run, l) {
+    // attention
+    run(kern.rms, [A.hidden, l.attnNorm, A.normed, A.dummySums], 1);
+    run(l.qMv, [A.normed, l.q.nibBuf, l.q.scBuf, A.topkIdx, A.qkv], wg(l.qOut, 2));
+    run(l.kMv, [A.normed, l.k.nibBuf, l.k.scBuf, A.topkIdx,
+        { buffer: A.qkv, offset: l.qOut * 4, size: l.kvOut * 4 }], wg(l.kvOut, 2));
+    if (!l.keqv) {
+      run(l.vMv, [A.normed, l.v.nibBuf, l.v.scBuf, A.topkIdx,
+          { buffer: A.qkv, offset: (l.qOut + l.kvOut) * 4, size: l.kvOut * 4 }], wg(l.kvOut, 2));
+    }
+    run(l.headprep, [A.qkv, l.qNorm, l.kNorm, A.params, l.kCache, l.vCache, A.dummySumI],
+        C.qHeads + 2 * l.kvHeads);
+    run(l.attn, [A.qkv, l.kCache, l.vCache, A.params, A.attnOut], [C.qHeads, 1]);
+    run(l.oMv, [A.attnOut, l.o.nibBuf, l.o.scBuf, A.topkIdx, A.tmp], wg(C.hidden, 2));
+    run(l.rmsaccOne, [A.tmp, l.postAttnNorm, A.hidden], 1);
+    // dense MLP branch
+    run(kern.rms, [A.hidden, l.ffnNorm, A.normed, A.dummySums], 1);
+    run(l.gateMv, [A.normed, l.gate.nibBuf, l.gate.scBuf, A.topkIdx, A.gu], wg(C.inter, 2));
+    run(l.upMv, [A.normed, l.up.nibBuf, l.up.scBuf, A.topkIdx,
+        { buffer: A.gu, offset: C.inter * 4, size: C.inter * 4 }], wg(C.inter, 2));
+    run(kern.gegluDense, [{ buffer: A.gu, offset: 0, size: C.inter * 4 },
+        { buffer: A.gu, offset: C.inter * 4, size: C.inter * 4 }, A.geglu], wg(C.inter, 256));
+    run(l.downMv, [A.geglu, l.down.nibBuf, l.down.scBuf, A.topkIdx, A.tmp], wg(C.hidden, 2));
+    run(kern.rms, [A.tmp, l.postFfw1, A.mlpOut, A.dummySums], 1);
+    // MoE branch (router input = the RAW post-attention residual = hidden)
+    run(kern.router, [A.hidden, l.routerS, l.routerW, l.pes, A.topkIdx, A.topkW], 1);
+    run(kern.rms, [A.hidden, l.preFfw2, A.normed, A.dummySums], 1);
+    run(l.guExpsMv, [A.normed, l.guExps.nibBuf, l.guExps.scBuf, A.topkIdx, A.guSlots],
+        [wg(2 * C.expInter, 2), 1, KEXP]);
+    run(kern.gegluSlots, [A.guSlots, A.gegluSlots], wg(KEXP * C.expInter, 256));
+    run(l.downExpsMv, [A.gegluSlots, l.downExps.nibBuf, l.downExps.scBuf, A.topkIdx, A.downSlots],
+        [wg(C.hidden, 2), 1, KEXP]);
+    run(kern.moeComb, [A.downSlots, A.topkW, A.tmp], wg(C.hidden, 256));
+    run(kern.rms, [A.tmp, l.postFfw2, A.moeOut, A.dummySums], 1);
+    // combine + post norm + residual + layer scalar
+    run(kern.accH, [A.mlpOut, A.moeOut], wg(C.hidden, 256));          // moeOut += mlpOut
+    run(l.rmsaccMul, [A.moeOut, l.postFfw, A.hidden], 1);             // hidden = (hidden + rms(moeOut)*w)*scalar
+  }
+
+  function encodeForward(run) {
+    run(kern.embed, [model.embQl, model.embQh, model.embSc, model.embD, A.params,
+        A.normed /*unused x*/, A.hidden], 1);
+    for (const l of layers) encodeLayer(run, l);
+    run(kern.rms, [A.hidden, model.outNorm, A.normed, A.dummySums], 1);
+    run(kern.lmHead, [model.embQl, model.embQh, model.embSc, model.embD, A.params,
+        A.normed, A.logits], wg2(C.vocab / 64));
+    run(kern.argmax0, [A.logits, A.amaxPart, A.amax], 256);
+    run(kern.argmax1, [A.logits, A.amaxPart, A.amax], 1);
+  }
+
+  async function step(token, pos) {
+    device.queue.writeBuffer(A.params, 0, new Uint32Array([pos, pos + 1, token, 0]));
+    const enc = device.createCommandEncoder();
+    const pass = enc.beginComputePass();
+    encodeForward(mkRun(pass));
+    pass.end();
+    device.queue.submit([enc.finish()]);
+  }
+
+  async function argmaxFast() {
+    const u = new Uint32Array(await readback(device, A.amax, 8));
+    return u[0];
+  }
+
+  function decodeChunk(startPos, count, ringBase) {
+    for (let i = 0; i < count; i++) {
+      const pos = startPos + i;
+      device.queue.writeBuffer(A.params, 0, new Uint32Array([pos, pos + 1]));
+      const enc = device.createCommandEncoder();
+      const pass = enc.beginComputePass();
+      const run = mkRun(pass);
+      run(kern.feedTok, [A.amax, A.params], 1);
+      encodeForward(run);
+      pass.end();
+      enc.copyBufferToBuffer(A.amax, 0, A.tokRing, (ringBase + i) * 8, 8);
+      device.queue.submit([enc.finish()]);
+    }
+  }
+
+  async function generateFast(inputIds, maxNew, eosIds = new Set([106, 1])) {
+    let pos = 0;
+    for (const t of inputIds) await step(t, pos++);
+    const g0 = await argmaxFast();
+    const out = [g0];
+    if (eosIds.has(g0)) return out;
+    let done = 1;
+    while (done < maxNew) {
+      const n = Math.min(8, maxNew - done);
+      decodeChunk(pos, n, done - 1);
+      pos += n;
+      const ring = new Uint32Array(await readback(device, A.tokRing, (done - 1 + n) * 8));
+      let stop = false;
+      for (let k = done - 1; k < done - 1 + n; k++) {
+        const t = ring[k * 2];
+        out.push(t);
+        if (eosIds.has(t)) { stop = true; break; }
+      }
+      done += n;
+      if (stop) break;
+    }
+    return out.slice(0, maxNew);
+  }
+
+  async function readHidden() {
+    return new Float32Array(await readback(device, A.hidden, C.hidden * 4));
+  }
+
+  return { device, C, layers, model, A, kern, step, decodeChunk, generateFast,
+           argmaxFast, readHidden, encodeForward, encodeLayerPub: encodeLayer, mkRun, bindPub: bind, rebuildPipelines };
+}

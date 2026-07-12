@@ -3,7 +3,7 @@ enable subgroups;
 // place on the concat qkv buffer), [QH, QH+KVH) k-heads (weighted RMS + RoPE +
 // kcache write), [QH+KVH, QH+2*KVH) v-heads (scale-less RMS + vcache write).
 // Shared layers dispatch only QH workgroups. Cache layout [MAXSEQ, KVH, HD].
-// Params: QH, KVH, HEAD_DIM, ROPE_ANGLES, THETA, EPS, WG
+// Params: QH, KVH, HEAD_DIM, ROPE_ANGLES, THETA, EPS, KEQV(0/1), WG
 @group(0) @binding(0) var<storage, read_write> qkv: array<f32>;  // [QH+2*KVH][HD]
 @group(0) @binding(1) var<storage, read> qw: array<f32>;
 @group(0) @binding(2) var<storage, read> kw: array<f32>;
@@ -17,7 +17,9 @@ var<workgroup> sg8: array<f32, 8>;
 @compute @workgroup_size(${WG})
 fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
   if (wid.x == 0u && lid.x == 0u) { sumI[0] = 0; }   // zero the Σq slot for att1
-  let base = wid.x * ${HEAD_DIM}u;
+  var srcHead = wid.x;
+  if (${KEQV}u == 1u && wid.x >= ${QH}u + ${KVH}u) { srcHead = wid.x - ${KVH}u; }  // v reads the k slice
+  let base = srcHead * ${HEAD_DIM}u;
   var s: f32 = 0.0;
   for (var d = lid.x; d < ${HEAD_DIM}u; d = d + ${WG}u) {
     let v = qkv[base + d];

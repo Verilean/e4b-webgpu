@@ -272,3 +272,23 @@ down_exps [704,2816,128] + per-expert F32 scale [128]), F32 ×392 (norms, router
 **Q6_K ×1 = token_embd (2816×262144, TIED lm_head — 484 MB/token, the single
 biggest read; needs a Q6_K kernel).** Full layers: attn_k only 1024 wide + NO
 attn_v (k_eq_v). data_start=15821792, align 32.
+
+## Campaign 2 — M2+M3 results (2026-07-08)
+
+**M2**: goldens = llama.cpp greedy (llama-server, temp 0, 3 prompts × 24 ids,
+return_tokens). Resident-tab harness built (serve.py /cmd long-poll + cmd.sh +
+resident-a4b.html): **14.4 GB loads in 30 s, then kernel edits hot-reload per
+command with zero weight reloads** — the TAT adaptation works as designed.
+
+**M3 — bring-up: GATE PASS, all 3 prompts TOKEN-EXACT vs llama.cpp** (first
+substantive run; one stale-epilogue kernel fix in between — caught in minutes by
+the resident loop). **P3's sub-prediction confirmed and exceeded: without SRQ
+grids, cross-engine token-exactness is achievable — 3/3, not just ≥1.** The
+per-layer stats mode showed healthy activations through the k_eq_v full layers
+on the first look. New engine surface: gguf.js (82 lines), engine-a4b.js
+(~330), 6 new kernels (q40mv with MoE expert indirection via a GPU-side topk
+buffer — no CPU readback in the MoE path; q6k embed+lm_head; router with
+in-kernel top-8; slot geglu; moe combine; f32 attention variant).
+
+Naive speed: **45.1 ms/token = 22.2 tok/s** (M4 start; llama.cpp 112.5;
+physics ceiling ~125-137). Wall clock M0→M3: **12:33 → 13:03 = 30 min.**
