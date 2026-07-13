@@ -121,3 +121,17 @@ therefore directly a comparison of "what llama.cpp has" vs "what it lacks":
 positional (stream) keeps 3/9 needles; generation-query scoring keeps 9/9 at
 12.5% budget. Claim upgrade: the engine implementation is AHEAD of llama.cpp
 for this mechanism class (research itself remains ~80% replication).
+
+## M3 scope refinement (Stage A landed; the probs[] wall)
+
+Stage A (ring sliding + counted full slots) landed bit-exact (gates PASS,
+decode 10.57 ms unchanged). Honest scope cut discovered while designing
+Stage B: the attention kernel's workgroup `probs[]` caps prefill attention at
+~2k entries (32 KB workgroup memory), so M3-v1 supports **prompts ≤ 2048**
+with PRECAP=2304 full-layer slots; compression happens ONCE at the
+prefill→decode transition using the M2-validated generation-probe scores
+(BUDGET=640), then decode stays budget-maintained with in-flight scores
+(re-compact every 128 tokens). 8k+ prompts need an online-softmax attention
+kernel — deferred to M3-v2, recorded. The needle gate runs at ctx 2048 with
+budget 640 (31%) and 512 (25%) — python M2 held 9/9 at 12.5%, so margin
+exists.
