@@ -13,7 +13,9 @@ import { openGGUF } from "./gguf.js";
 import { initDevice, upload, alloc, readback, Kernels } from "./gpu.js";
 
 const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => {});
-const MAXSEQ = 640;
+const MAXSEQ = 640;                 // legacy positional cap (CACHEMODE 0 only)
+const KV_CAP = 1152;                // full-layer cache slots (budget + margin)
+// sliding layers: ring slots = window (the ring IS the window)
 const ATTN2 = new URLSearchParams(globalThis.location?.search ?? "").get("attn2") === "1";
 const SGM_OFF = new URLSearchParams(globalThis.location?.search ?? "").get("sgm") === "0";
 const GRP_OFF = new URLSearchParams(globalThis.location?.search ?? "").get("grp") === "0";
@@ -168,8 +170,9 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       downExps: await q40(p + "ffn_down_exps.weight"),
       ppO: alloc(device, (C.hidden + 4) * 4),                  // per-layer (avoid a
                                                                // cross-layer atomic RMW chain)
-      kCache: alloc(device, MAXSEQ * kvHeads * headDim * 2),   // f16
-      vCache: alloc(device, MAXSEQ * kvHeads * headDim * 2),
+      kvSlots: isSliding ? C.window : KV_CAP,   // ring vs budget-capped
+      kCache: alloc(device, (isSliding ? C.window : KV_CAP) * kvHeads * headDim * 2),
+      vCache: alloc(device, (isSliding ? C.window : KV_CAP) * kvHeads * headDim * 2),
     };
     if (!l.keqv) l.v = await q40(p + "attn_v.weight");
     l.qOut = l.q.dims[1];                                // rows
@@ -189,8 +192,8 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   const bgCache = new Map();
   const tokenPlans = [];
   const A = {
-    params: alloc(device, 16),
-    paramsRing: Array.from({ length: 32 }, () => alloc(device, 16)),
+    params: alloc(device, 32),
+    paramsRing: Array.from({ length: 32 }, () => alloc(device, 32)),
     hidden: alloc(device, C.hidden * 4),
     hiddenB: alloc(device, C.hidden * 4),
     qPrep: alloc(device, 16 * C.hdFull * 4),
@@ -229,7 +232,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   const maxQkv = Math.max(...layers.map((l) => l.qkvRows));
   Object.assign(A, {
     tokPre: alloc(device, MPRE * 4),
-    paramsPre: alloc(device, 16),                       // [0]=basePos, [1]=M
+    paramsPre: alloc(device, 32),   // [0]=basePos [1]=M [4]=fullSlotBase
     hP: alloc(device, MPRE * C.hidden * 4),
     hPB: alloc(device, MPRE * C.hidden * 4),
     normedP: alloc(device, MPRE * C.hidden * 2),        // f16
@@ -301,11 +304,15 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       E: C.nExperts, K: KEXP, EXPERT: 2, BATCH: 0 });
     l.downMv = await K.pipeline("q40mv", { IN: C.inter, OUT: C.hidden, EXPERT: 0, XSLOT: 0, XF16: 1, WG: 32 });
     l.downExpsMv = await K.pipeline("q40moedown", { IN: C.expInter, OUT: C.hidden, K: KEXP, BATCH: 0 });
+    const cmode = l.isSliding ? 1 : 2;          // ring vs counted
+    const ring = l.isSliding ? C.window : 1;
+    const seqCap = l.isSliding ? C.window : KV_CAP;   // probs[] sizing
     l.headprep = await K.pipeline("headprep", { QH: C.qHeads, KVH: l.kvHeads,
       HEAD_DIM: l.headDim, ROPE_ANGLES: ra, THETA: theta, EPS: C.eps,
-      KEQV: l.keqv ? 1 : 0, WG: 128, BATCH: 0 });
+      KEQV: l.keqv ? 1 : 0, WG: 128, BATCH: 0, CACHEMODE: cmode, RING: ring });
     l.attn = await K.pipeline("attnf32", { Q_HEADS: C.qHeads, KV_HEADS: l.kvHeads,
-      HEAD_DIM: l.headDim, MAXSEQ, WINDOW: l.isSliding ? C.window : 0, DT: 1, WG: 256, BATCH: 0 });
+      HEAD_DIM: l.headDim, MAXSEQ: seqCap, WINDOW: l.isSliding ? C.window : 0, DT: 1,
+      WG: 256, BATCH: 0, CACHEMODE: cmode, RING: ring, SCORE: 0 });
     // ---- batched-prefill variants (M6/P5) ----
     l.qkvMm = await K.pipeline("q40mm", { IN: C.hidden, OUT: l.qkvRows, XF16: 1, WG: 64, MCOLS: 4 });
     l.oMm = await K.pipeline("q40mm", { IN: l.qOut, OUT: C.hidden, XF16: 1, WG: 32, MCOLS: 4 });
@@ -329,9 +336,10 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     l.downExpsMvB = await K.pipeline("q40moedown", { IN: C.expInter, OUT: C.hidden, K: KEXP, BATCH: 1 });
     l.headprepB = await K.pipeline("headprep", { QH: C.qHeads, KVH: l.kvHeads,
       HEAD_DIM: l.headDim, ROPE_ANGLES: ra, THETA: theta, EPS: C.eps,
-      KEQV: l.keqv ? 1 : 0, WG: 128, BATCH: 1 });
+      KEQV: l.keqv ? 1 : 0, WG: 128, BATCH: 1, CACHEMODE: cmode, RING: ring });
     l.attnB = await K.pipeline("attnf32", { Q_HEADS: C.qHeads, KV_HEADS: l.kvHeads,
-      HEAD_DIM: l.headDim, MAXSEQ, WINDOW: l.isSliding ? C.window : 0, DT: 1, WG: 256, BATCH: 1 });
+      HEAD_DIM: l.headDim, MAXSEQ: seqCap, WINDOW: l.isSliding ? C.window : 0, DT: 1,
+      WG: 256, BATCH: 1, CACHEMODE: cmode, RING: ring, SCORE: 0 });
     l.attn2 = await K.pipeline("attn2f", { Q_HEADS: C.qHeads, KV_HEADS: l.kvHeads,
       HEAD_DIM: l.headDim, MAXSEQ, WINDOW: l.isSliding ? C.window : 0,
       ROPE_ANGLES: ra, THETA: theta, EPS: C.eps, KEQV: l.keqv ? 1 : 0,
@@ -380,7 +388,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     } else {
       run(l.headprep, [A.qkv, l.qNorm, l.kNorm, P, l.kCache, l.vCache, A.dummySumI,
           A.qPrep], C.qHeads + 2 * l.kvHeads);
-      run(l.attn, [A.qPrep, l.kCache, l.vCache, P, A.attnOut], [C.qHeads, 1]);
+      run(l.attn, [A.qPrep, l.kCache, l.vCache, P, A.attnOut, A.dumY2], [C.qHeads, 1]);
     }
     run(l.oMv, [A.dumX, l.o.nibBuf, l.o.scBuf, A.topkIdx, A.tmp, A.attnOut], wg(C.hidden, 2));
     run(kern.rmsacc3, [A.tmp, l.postAttnNorm, l.ffnNorm, l.routerS, l.preFfw2,
@@ -411,7 +419,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
         [wg(l.qkvRows, 4), 1, zc]);
     run(l.headprepB, [A.qkvP, l.qNorm, l.kNorm, A.paramsPre, l.kCache, l.vCache, A.dummySumI,
         A.qPrepP], [C.qHeads + 2 * l.kvHeads, M]);
-    run(l.attnB, [A.qPrepP, l.kCache, l.vCache, A.paramsPre, A.attnOutP], [C.qHeads, 1, M]);
+    run(l.attnB, [A.qPrepP, l.kCache, l.vCache, A.paramsPre, A.attnOutP, A.dumY2], [C.qHeads, 1, M]);
     if (l.oSg) run(l.oSg, [A.attnOutP, l.o.nibBuf, l.o.scBuf, A.paramsPre, A.tmpP],
         [C.hidden / 64, mt]);
     else run(l.oMm, [A.dumX, l.o.nibBuf, l.o.scBuf, A.paramsPre, A.tmpP, A.attnOutP],
@@ -489,7 +497,8 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       const M = chunk.length;
       const last = off + M >= inputIds.length;
       device.queue.writeBuffer(A.tokPre, 0, new Uint32Array(chunk));
-      device.queue.writeBuffer(A.paramsPre, 0, new Uint32Array([off, M, 0, 0]));
+      device.queue.writeBuffer(A.paramsPre, 0,
+        new Uint32Array([off, M, 0, 0, off, 0, 0, 0]));
       const enc = device.createCommandEncoder();
       let pass = enc.beginComputePass();
       let run = mkRun(pass);
@@ -550,7 +559,8 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   }
 
   async function step(token, pos) {
-    device.queue.writeBuffer(A.params, 0, new Uint32Array([pos, pos + 1, token, 0]));
+    device.queue.writeBuffer(A.params, 0,
+      new Uint32Array([pos, pos + 1, token, 0, pos, pos + 1, 0, 0]));
     const enc = device.createCommandEncoder();
     const pass = enc.beginComputePass();
     encodeForward(mkRun(pass));
@@ -561,7 +571,8 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   // per-dispatch GPU budget (pass-per-dispatch timestamps; RANKING only)
   async function profileStep(token, pos) {
     if (!device.features.has("timestamp-query")) return null;
-    device.queue.writeBuffer(A.params, 0, new Uint32Array([pos, pos + 1, token, 0]));
+    device.queue.writeBuffer(A.params, 0,
+      new Uint32Array([pos, pos + 1, token, 0, pos, pos + 1, 0, 0]));
     const qs = device.createQuerySet({ type: "timestamp", count: 4096 });
     const enc = device.createCommandEncoder();
     const labels = [];
@@ -597,7 +608,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     if (!device.features.has("timestamp-query")) return null;
     const M = Math.min(inputIds.length, MPRE);
     device.queue.writeBuffer(A.tokPre, 0, new Uint32Array(inputIds.slice(0, M)));
-    device.queue.writeBuffer(A.paramsPre, 0, new Uint32Array([0, M, 0, 0]));
+    device.queue.writeBuffer(A.paramsPre, 0, new Uint32Array([0, M, 0, 0, 0, 0, 0, 0]));
     const qs = device.createQuerySet({ type: "timestamp", count: 4096 });
     const enc = device.createCommandEncoder();
     const labels = [];
@@ -643,7 +654,8 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       const n = Math.min(32, count - c);
       for (let i = 0; i < n; i++) {
         const pos = startPos + c + i;
-        device.queue.writeBuffer(A.paramsRing[i], 0, new Uint32Array([pos, pos + 1]));
+        device.queue.writeBuffer(A.paramsRing[i], 0,
+          new Uint32Array([pos, pos + 1, 0, 0, pos, pos + 1, 0, 0]));
       }
       const enc = device.createCommandEncoder();
       for (let i = 0; i < n; i++) {

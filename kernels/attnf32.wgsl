@@ -10,6 +10,7 @@ enable subgroups;
 @group(0) @binding(2) var<storage, read> vcache: array<vec4<f16>>;
 @group(0) @binding(3) var<storage, read> params: array<u32>;   // [1]=cacheLen
 @group(0) @binding(4) var<storage, read_write> outv: array<vec4<f16>>;
+@group(0) @binding(5) var<storage, read_write> score: array<f32>;   // SCORE=1: [QH][MAXSEQ]
 
 var<workgroup> probs: array<f32, ${MAXSEQ}>;
 var<workgroup> red: array<f32, ${WG}>;
@@ -23,13 +24,21 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   let kvh = h / (${Q_HEADS}u / ${KV_HEADS}u);
   // BATCH=1 (prefill): wid.z = token; causal len = basePos(params[0]) + tok + 1
   let bTok = select(0u, wid.z, ${BATCH}u == 1u);
-  let len = select(params[1], params[0] + bTok + 1u, ${BATCH}u == 1u);
+  var len = select(params[1], params[0] + bTok + 1u, ${BATCH}u == 1u);
   var start: u32 = 0u;
-  if (${WINDOW}u != 0u && len > ${WINDOW}u) { start = len - ${WINDOW}u; }
+  if (${CACHEMODE}u == 0u && ${WINDOW}u != 0u && len > ${WINDOW}u) { start = len - ${WINDOW}u; }
+  if (${CACHEMODE}u == 1u) {                 // ring: iterate live slots; slot
+    start = 0u;                              // order is softmax-irrelevant
+    len = min(len, ${RING}u);
+    // batch: earlier tokens of the chunk must not see later ring writes —
+    // guaranteed because the chunk's headprep precedes attn and older
+    // entries it overwrote were outside the window anyway.
+  }
+  if (${CACHEMODE}u == 2u) { len = select(params[5], params[4] + bTok + 1u, ${BATCH}u == 1u); }
   let hd4 = ${HEAD_DIM}u / 4u;
   let qBase = bTok * ${Q_HEADS}u * hd4 + h * hd4;
 
-  // scores (each thread strided over positions)
+  // scores (each thread strided over positions/slots)
   var m: f32 = -3.0e38;
   for (var t = start + lid.x; t < len; t = t + ${WG}u) {
     let kBase = (t * ${KV_HEADS}u + kvh) * hd4;
@@ -74,4 +83,10 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
     for (var p: u32 = 1u; p < tp; p = p + 1u) { v = v + vpart[lid.x + p * tw]; }
     outv[qBase + d0 + lid.x] = vec4<f16>(v / denom);
   }
+  if (${SCORE}u == 1u) {                     // per-(head, slot) attention mass
+    workgroupBarrier();                      // for the budget compactor
+    for (var t = start + lid.x; t < len; t = t + ${WG}u) {
+      score[h * ${MAXSEQ}u + t] = score[h * ${MAXSEQ}u + t] + probs[t] / denom;
+    }
+  } else { _ = score[0]; }
 }

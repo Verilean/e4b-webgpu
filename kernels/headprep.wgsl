@@ -40,6 +40,12 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   let half = ${HEAD_DIM}u / 2u;
   let pos = params[0] + bTok;
   let fp = f32(pos);
+  // CACHEMODE 0: slot=pos (legacy). 1: ring slot=pos%RING (sliding layers;
+  // the ring IS the window). 2: counted slot=params[2]+bTok (full layers
+  // under budget compaction; params[4]=slotBase, CPU-tracked).
+  var slot = pos;
+  if (${CACHEMODE}u == 1u) { slot = pos % ${RING}u; }
+  if (${CACHEMODE}u == 2u) { slot = params[4] + bTok; }
 
   if (wid.x < ${QH}u) {                                    // q: in place
     for (var p = lid.x; p < half; p = p + ${WG}u) {
@@ -57,7 +63,7 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
     }
   } else if (wid.x < ${QH}u + ${KVH}u) {                   // k: rope → kcache
     let h = wid.x - ${QH}u;
-    let cBase = (pos * ${KVH}u + h) * ${HEAD_DIM}u;
+    let cBase = (slot * ${KVH}u + h) * ${HEAD_DIM}u;
     for (var p = lid.x; p < half; p = p + ${WG}u) {
       let x0 = qkv[base + p] * inv * kw[p];
       let x1 = qkv[base + p + half] * inv * kw[p + half];
@@ -73,7 +79,7 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
     }
   } else {                                                 // v: scale-less → vcache
     let h = wid.x - ${QH}u - ${KVH}u;
-    let cBase = (pos * ${KVH}u + h) * ${HEAD_DIM}u;
+    let cBase = (slot * ${KVH}u + h) * ${HEAD_DIM}u;
     for (var d = lid.x; d < ${HEAD_DIM}u; d = d + ${WG}u) {
       vcache[cBase + d] = f16(qkv[base + d] * inv);
     }
