@@ -217,3 +217,23 @@ q40moedown).
 - **B-P4**: decode gets FASTER: expert reads shrink ~2.8×; MoE-bound decode
   fraction ~55% → predicted total decode ≥ 1.25× speedup. (conf 55%)
 - **B-P5**: ternarizer + loader + 2 kernels + first gate in ≤ 2 legs.
+
+### Phase B measurements (2026-07-14)
+
+- t2 kernels verified BIT-EXACT vs JS reference after the harness fix:
+  yGpu=-1.0953922 vs yJS=-1.0953921 (fp32 rounding), ratio 1.0000.
+  (An earlier "ratio 1.0000" claim in-session was FALSE — the JS side was
+  NaN from double-f16 decode + stale page JS; corrected, re-run clean.)
+- Quality (RTN, experts-only, relMSE ~0.28/tensor): coherent text; token-level
+  gate diverges at token 0-2 (expected for a lossy transform); **needle 3/6 =
+  EXACT PARITY with the full-precision full-cache baseline** — long-context
+  retrieval survives expert ternarization. But prompt-0 top-1 logit flips
+  (818 @22.56 vs baseline top-1 236776 @15.74 rank-3) — drift is real;
+  AA + mixed precision remain untested on A4B.
+- **B-P4 decode speed: MISS.** grp=0 q4_0 baseline 12.46 ms/tok (80.2 tok/s)
+  vs t2 11.82 ms/tok (84.6 tok/s) = 1.05x, predicted >= 1.25x. Post-hoc
+  reason (obvious in hindsight): decode reads only top-8/128 experts
+  (~24 MB/tok); shrinking expert bytes 2.2x cuts ~5% of per-token traffic.
+  The 12.8 GB -> 5.74 GB memory saving stands (B-P5 class); the SPEED story
+  for ternary lives in PREFILL (grouped path reads all routed experts) —
+  t2 grouped-prefill kernels not built yet.
