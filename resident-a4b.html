@@ -378,6 +378,46 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
       }
       return;
     }
+    if (cmd.mode === "t2test") {
+      // verify t2moedown against JS recompute from the ternary sidecar (layer 0,
+      // expert 0, output row 0). topk=[0..], topkW=[1,0..], known f16 x slot 0.
+      const { readback } = await import("./src/gpu.js");
+      const dev = eng.device, A = eng.A, l0 = eng.layers[0];
+      const IN = eng.C.expInter;                 // 704
+      const xf = new Float16Array(IN);
+      for (let i = 0; i < IN; i++) xf[i] = ((i * 7 + 3) % 13 - 6) / 6;
+      dev.queue.writeBuffer(A.gegluSlots, 0, xf.buffer.slice(0, IN * 2));
+      dev.queue.writeBuffer(A.topkIdx, 0, new Uint32Array([0,0,0,0,0,0,0,0]));
+      dev.queue.writeBuffer(A.topkW, 0, new Float32Array([1,0,0,0,0,0,0,0]));
+      { const enc = dev.createCommandEncoder(); const pass = enc.beginComputePass();
+        pass.setPipeline(l0.downExpsT2Mv.pipeline);
+        pass.setBindGroup(0, eng.bindPub(l0.downExpsT2Mv,
+          [A.gegluSlots, l0.downExpsT2.t2Buf, l0.downExpsT2.scBuf, A.topkIdx, A.topkW, A.moeOut]));
+        pass.dispatchWorkgroups(Math.ceil(eng.C.hidden / 4)); pass.end();
+        dev.queue.submit([enc.finish()]); }
+      const y = new Float32Array(await readback(dev, A.moeOut, 16));
+      // JS recompute row 0
+      const man = (await (await fetch("model-a4b/ternary.json")).json()).tensors["blk.0.ffn_down_exps.weight"];
+      const words = IN / 16;                      // 44
+      const t2 = new Uint32Array(await (await fetch("model-a4b/ternary.bin",
+        { headers: { Range: `bytes=${man.off}-${man.off + words*4 - 1}` } })).arrayBuffer());
+      const scB = new Uint16Array(await (await fetch("model-a4b/ternary.bin",
+        { headers: { Range: `bytes=${man.off + man.t2Bytes}-${man.off + man.t2Bytes + 1}` } })).arrayBuffer());
+      const f16f = (h) => { const s2=(h&0x8000)?-1:1,e=(h>>10)&31,m=h&1023;
+        return e===0?s2*m*2**-24:(e===31?NaN:s2*(1+m/1024)*2**(e-15)); };
+      const scale = f16f(scB[0]);
+      let acc = 0;
+      for (let jw = 0; jw < words; jw++) {
+        const w = t2[jw];
+        for (let g = 0; g < 4; g++) for (let b = 0; b < 4; b++) {
+          const t = ((w >> (2*g + 8*b)) & 3) - 1;
+          acc += t * xf[jw*16 + g*4 + b];
+        }
+      }
+      acc *= scale;
+      L(`t2test: yGpu[0]=${y[0]}  yJS=${acc}  ratio=${(y[0]/acc).toFixed(4)}`);
+      return;
+    }
     if (cmd.mode === "mvtest") {
       // synthetic XF16 q40mv check: known f16 x into A.geglu, run l0.downMv,
       // JS-recompute row 0 exactly from the repacked planes.
