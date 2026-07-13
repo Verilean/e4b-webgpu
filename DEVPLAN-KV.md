@@ -108,3 +108,16 @@ chunked prefill with a one-token generation-style probe per chunk boundary
 (applies the M2 mechanism finding). Robustness check added to the gates:
 needle with ≥2 question phrasings (the mechanism finding could be
 task-shaped).
+
+## Positioning correction (2026-07-13, owner asked "does llama.cpp already
+## have this? shipped?")
+
+Verified against the local fork + web: llama.cpp SHIPS (a) `--ctx-shift`
+(positional: keep-prefix + shift = our "stream" class), (b) cache-type
+quantization `-ctk/-ctv`, (c) iSWA bounded sliding caches. It does NOT ship
+importance-scored eviction (SnapKV/TOVA/H2O class) — structurally hard there
+because FA kernels don't expose attention weights. Our M2 measurement is
+therefore directly a comparison of "what llama.cpp has" vs "what it lacks":
+positional (stream) keeps 3/9 needles; generation-query scoring keeps 9/9 at
+12.5% budget. Claim upgrade: the engine implementation is AHEAD of llama.cpp
+for this mechanism class (research itself remains ~80% replication).
