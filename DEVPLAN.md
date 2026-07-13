@@ -1062,3 +1062,33 @@ budgets {12.5%, 25%, 50%} of the full-layer cache.
 (needle gen + budgeted-cache generate loop) + policy grid → M2 verdicts +
 policy pick (★) → M3 WGSL port to the A4B engine (MAXSEQ 640→8192, budgeted
 full-layer caches) + gate/perf → M4 record.
+
+## Campaign 5 M1/M2 results (2026-07-13): policy verdicts — and a mechanism find
+
+Needle grid (E2B python, ctx 4096, depths {10,50,90}%, budgets {12.5,25,50}%,
+full-layer caches only; harness gate full-cache 3/3):
+
+| policy | needle | notes |
+|---|---|---|
+| stream (sinks+recent) | 3/9 (only d=0.9) | **P1 HIT** — position-based eviction keeps only recent needles |
+| snap, prefill-window queries | 0/9 | first implementation FAILED — see mechanism |
+| **snap, generation-query scoring** | **9/9 incl 12.5% budget** | **P2 HIT decisively** (bar: ≥80% @25%) |
+| merge (+absorb evicted) | 9/9, ppl ≈ snap (30.4 vs 30.6 @12.5%) | **P3 MISSED** — merging adds nothing here |
+| rand control | 1/9 | sanity ✓ |
+
+**Mechanism finding (the campaign's keeper):** with prefill-window queries the
+needle ranked 663/4096 at L4 but **2593/4096 at L14** — deep full layers
+barely attend to the fact during prefill. Scored with the FIRST GENERATED
+token's queries instead (TOVA-style), the needle ranks **0-23 at every
+layer**. In gemma4, retrieval-shaped attention appears at generation time,
+not in the prompt's last window — SnapKV's observation-window assumption
+fails here; the fix costs one probe token before compression.
+
+Retrieval-stress ppl (tiled-copy continuation — measures copy-source
+retention, NOT natural ppl; noted): full 1.11 / snap 8.2@25%, 30.6@12.5% /
+stream 150-213 (catastrophic). Ranking consistent with needle.
+
+**M2 policy pick (★): snap with generation-query scoring + pooling; drop
+merge (no gain) and stream (fails the point).** M3 = WGSL port to the A4B
+engine: MAXSEQ 640→8192, budgeted full-layer caches, in-engine probe-token
+scoring. P4 (≤5% decode overhead) and P5 (port ≤1 leg) stand.
