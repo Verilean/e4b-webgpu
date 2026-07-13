@@ -174,11 +174,11 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       downExps: await q40(p + "ffn_down_exps.weight"),
       ppO: alloc(device, (C.hidden + 4) * 4),                  // per-layer (avoid a
                                                                // cross-layer atomic RMW chain)
-      kvSlots: isSliding ? C.window : KV_PRECAP,
+      kvSlots: isSliding ? C.window + 512 : KV_PRECAP,
       scoreBuf: isSliding ? null : alloc(device, 16 * KV_SCAP * 4),
       keepBuf: isSliding ? null : alloc(device, KV_BUDGET * 4),
-      kCache: alloc(device, (isSliding ? C.window : KV_PRECAP) * kvHeads * headDim * 2),
-      vCache: alloc(device, (isSliding ? C.window : KV_PRECAP) * kvHeads * headDim * 2),
+      kCache: alloc(device, (isSliding ? C.window + 512 : KV_PRECAP) * kvHeads * headDim * 2),
+      vCache: alloc(device, (isSliding ? C.window + 512 : KV_PRECAP) * kvHeads * headDim * 2),
     };
     if (!l.keqv) l.v = await q40(p + "attn_v.weight");
     l.qOut = l.q.dims[1];                                // rows
@@ -315,8 +315,8 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     l.downMv = await K.pipeline("q40mv", { IN: C.inter, OUT: C.hidden, EXPERT: 0, XSLOT: 0, XF16: 1, WG: 32 });
     l.downExpsMv = await K.pipeline("q40moedown", { IN: C.expInter, OUT: C.hidden, K: KEXP, BATCH: 0 });
     const cmode = l.isSliding ? 1 : 2;          // ring vs counted
-    const ring = l.isSliding ? C.window : 1;
-    const seqCap = l.isSliding ? C.window : KV_PRECAP + 128;   // probs[] sizing
+    const ring = l.isSliding ? C.window + 512 : 1;   // +chunk slack (see attnf32)
+    const seqCap = l.isSliding ? C.window + 512 : KV_PRECAP + 128;   // probs[] sizing
     l.headprep = await K.pipeline("headprep", { QH: C.qHeads, KVH: l.kvHeads,
       HEAD_DIM: l.headDim, ROPE_ANGLES: ra, THETA: theta, EPS: C.eps,
       KEQV: l.keqv ? 1 : 0, WG: 128, BATCH: 0, CACHEMODE: cmode, RING: ring });

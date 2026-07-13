@@ -27,12 +27,17 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   var len = select(params[1], params[0] + bTok + 1u, ${BATCH}u == 1u);
   var start: u32 = 0u;
   if (${CACHEMODE}u == 0u && ${WINDOW}u != 0u && len > ${WINDOW}u) { start = len - ${WINDOW}u; }
-  if (${CACHEMODE}u == 1u) {                 // ring: iterate live slots; slot
-    start = 0u;                              // order is softmax-irrelevant
-    len = min(len, ${RING}u);
-    // batch: earlier tokens of the chunk must not see later ring writes —
-    // guaranteed because the chunk's headprep precedes attn and older
-    // entries it overwrote were outside the window anyway.
+  // ring (CACHEMODE 1): RING = window + chunk slack, so a prefill chunk's own
+  // writes never clobber entries its earlier tokens still need. Each slot's
+  // TRUE position is recovered from the newest written position (maxW) and
+  // window/causality are enforced per slot below.
+  var qp: u32 = 0u;      // this query's position
+  var maxW: u32 = 0u;    // newest position written into the ring
+  if (${CACHEMODE}u == 1u) {
+    start = 0u;
+    qp = select(params[1] - 1u, params[0] + bTok, ${BATCH}u == 1u);
+    maxW = select(params[1] - 1u, params[0] + params[1] - 1u, ${BATCH}u == 1u);
+    len = min(maxW + 1u, ${RING}u);
   }
   if (${CACHEMODE}u == 2u) { len = select(params[5], params[4] + bTok + 1u, ${BATCH}u == 1u); }
   let hd4 = ${HEAD_DIM}u / 4u;
@@ -41,10 +46,18 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid
   // scores (each thread strided over positions/slots)
   var m: f32 = -3.0e38;
   for (var t = start + lid.x; t < len; t = t + ${WG}u) {
+    var dead = false;
+    if (${CACHEMODE}u == 1u) {
+      let ps = maxW - ((maxW + ${RING}u - t) % ${RING}u);   // slot t's true position
+      dead = ps > qp || ps + ${WINDOW}u <= qp;              // causality + window
+    }
     let kBase = (t * ${KV_HEADS}u + kvh) * hd4;
-    var s: f32 = 0.0;
-    for (var d: u32 = 0u; d < hd4; d = d + 1u) {
-      s = s + dot(q[qBase + d], vec4<f32>(kcache[kBase + d]));
+    var s: f32 = -3.0e38;
+    if (!dead) {
+      s = 0.0;
+      for (var d: u32 = 0u; d < hd4; d = d + 1u) {
+        s = s + dot(q[qBase + d], vec4<f32>(kcache[kBase + d]));
+      }
     }
     probs[t] = s;
     m = max(m, s);
