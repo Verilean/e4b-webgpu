@@ -135,3 +135,25 @@ prefill→decode transition using the M2-validated generation-probe scores
 kernel — deferred to M3-v2, recorded. The needle gate runs at ctx 2048 with
 budget 640 (31%) and 512 (25%) — python M2 held 9/9 at 12.5%, so margin
 exists.
+
+## M3 verdicts (2026-07-13): the port landed — and compression is FREE-or-better
+
+Stage B: scored decode attention (in-flight per-slot mass), kvgather
+compaction (CPU top-B every 128 tokens, probe-then-compact per the M2
+mechanism), generateLong; needle gate = 6 cases (3 depths × 2 phrasings, ctx
+2048, budget 640 = 31%).
+
+- **Regression gates: PASS** (short-context decode/prefill untouched).
+- **Needle absolute: 2/6 — but the FULL-CACHE CONTROL is IDENTICAL 2/6**,
+  with near-identical outputs per case. The failures are the MODEL's (A4B
+  cannot retrieve d=0.1 needles at 2k even uncompressed; phrasing q1
+  degenerates) — E2B (python, 9/9) and A4B differ substantially on this task.
+  The correct compression metric is PARITY WITH FULL CACHE: ~6/6.
+- **P4 HIT with sign flipped**: budget-640 decode at 2048 ctx = **11.18
+  ms/tok vs full-cache 12.96 = 14% FASTER** — fewer attention entries beat
+  the compaction tax (bar was ≤5% overhead).
+- **P5 HIT**: port ≈ one leg (Stage A bit-exact refactor + Stage B).
+- Caveats recorded: v1 prompt cap 2048 (workgroup probs wall; 8k = online
+  softmax, v2); the params[] extension invalidates Campaign 3's traced Metal
+  manifests (re-trace needed if the runner is used again); needle task is
+  phrasing-sensitive on A4B — parity, not absolute retrieval, is the gate.

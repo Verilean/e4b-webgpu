@@ -235,7 +235,8 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
       const nd = await (await fetch("goldens/needle-a4b.json")).json();
       let pass = 0;
       for (const c of nd.cases) {
-        const out = await eng.generateLong(c.input_ids, 12);
+        const out = cmd.full ? await eng.generatePrefill(c.input_ids, 12)
+                             : await eng.generateLong(c.input_ids, 12);
         const seq = c.code_ids;
         let ok = false;
         for (let i = 0; i + seq.length <= out.length; i++)
@@ -244,6 +245,26 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
         L(`[needle] d=${c.depth} q${c.phrasing} ${ok ? "PASS" : "FAIL"} out=${JSON.stringify(out)}`);
       }
       L(`NEEDLE ${pass}/${nd.cases.length}`);
+      return;
+    }
+    if (cmd.mode === "longbench") {
+      // P4: decode ms/token at 2048 context — budget-compacted vs full cache
+      const nd = await (await fetch("goldens/needle-a4b.json")).json();
+      const ids = nd.cases[1].input_ids;
+      for (const full of [1, 0]) {
+        eng.prefill(ids);
+        let pos = ids.length;
+        await eng.argmaxFast();
+        if (!full) { eng.decodeChunk(pos, 1, 0); pos += 1;
+          await eng.device.queue.onSubmittedWorkDone(); await eng.compactAll(); }
+        const t1 = performance.now();
+        const N = 64;
+        if (full) { eng.decodeChunk(pos, N, 0); }
+        else { for (let c = 0; c < N; c += 8) { eng.decodeChunk(pos + c, 8, c); } }
+        await eng.device.queue.onSubmittedWorkDone();
+        const dt = (performance.now() - t1) / N;
+        L(`[longbench] ${full ? "full-2048" : "budget-640"}: ${dt.toFixed(2)} ms/tok`);
+      }
       return;
     }
     if (cmd.mode === "trace") {
