@@ -79,16 +79,19 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   let t2side = null;
   if (T2) {
     const man = await (await fetch("model-a4b/ternary.json")).json();
-    const bin = await (await fetch("model-a4b/ternary.bin")).arrayBuffer();
-    t2side = { man: man.tensors, bin, quant: man.quant };
-    L(`ternary sidecar (${man.quant}): ${Object.keys(man.tensors).length} tensors, ${(bin.byteLength/1e9).toFixed(2)}GB`);
+    t2side = { man: man.tensors, quant: man.quant };
+    L(`ternary sidecar (${man.quant}): ${Object.keys(man.tensors).length} tensors (range-fetched)`);
   }
-  // ternary expert tensor -> { t2Buf, scBuf } (or null if not in sidecar)
-  function t2load(name) {
+  // ternary expert tensor -> { t2Buf, scBuf }; range-fetches its slice of the
+  // 5.7GB sidecar (single-fetch would exceed the ArrayBuffer cap).
+  async function t2load(name) {
     if (!t2side || !t2side.man[name]) return null;
     const e = t2side.man[name];
-    const t2 = new Uint32Array(t2side.bin, e.off, e.t2Bytes / 4);
-    const sc = new Uint16Array(t2side.bin, e.off + e.t2Bytes, e.scBytes / 2);
+    const a = e.off, b = e.off + e.t2Bytes + e.scBytes - 1;
+    const buf = await (await fetch("model-a4b/ternary.bin",
+      { headers: { Range: `bytes=${a}-${b}` } })).arrayBuffer();
+    const t2 = new Uint32Array(buf, 0, e.t2Bytes / 4);
+    const sc = new Uint16Array(buf, e.t2Bytes, e.scBytes / 2);
     return { t2Buf: upload(device, t2), scBuf: upload(device, sc), rows: e.rows, cols: e.cols };
   }
   const K = new Kernels(device);
@@ -188,8 +191,8 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       })(),
       guExps: await q40(p + "ffn_gate_up_exps.weight"),
       downExps: await q40(p + "ffn_down_exps.weight"),
-      guExpsT2: t2load(p + "ffn_gate_up_exps.weight"),
-      downExpsT2: t2load(p + "ffn_down_exps.weight"),
+      guExpsT2: await t2load(p + "ffn_gate_up_exps.weight"),
+      downExpsT2: await t2load(p + "ffn_down_exps.weight"),
       ppO: alloc(device, (C.hidden + 4) * 4),                  // per-layer (avoid a
                                                                // cross-layer atomic RMW chain)
       kvSlots: isSliding ? C.window + 512 : KV_PRECAP,
