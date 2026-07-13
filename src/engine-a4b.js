@@ -14,7 +14,11 @@ import { initDevice, upload, alloc, readback, Kernels } from "./gpu.js";
 
 const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => {});
 const MAXSEQ = 640;                 // legacy positional cap (CACHEMODE 0 only)
-const KV_CAP = 1152;                // full-layer cache slots (budget + margin)
+const KV_PRECAP = 2304;             // full-layer slots (prefill phase, prompt<=2048)
+const KV_BUDGET = 640;              // post-compaction full-layer entries
+const KV_DECAP = 768;               // decode recompaction threshold
+const KV_PROTECT = 64;              // most-recent slots always kept
+const KV_SCAP = KV_PRECAP + 128;    // score stride = attn probs template size
 // sliding layers: ring slots = window (the ring IS the window)
 const ATTN2 = new URLSearchParams(globalThis.location?.search ?? "").get("attn2") === "1";
 const SGM_OFF = new URLSearchParams(globalThis.location?.search ?? "").get("sgm") === "0";
@@ -170,9 +174,11 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       downExps: await q40(p + "ffn_down_exps.weight"),
       ppO: alloc(device, (C.hidden + 4) * 4),                  // per-layer (avoid a
                                                                // cross-layer atomic RMW chain)
-      kvSlots: isSliding ? C.window : KV_CAP,   // ring vs budget-capped
-      kCache: alloc(device, (isSliding ? C.window : KV_CAP) * kvHeads * headDim * 2),
-      vCache: alloc(device, (isSliding ? C.window : KV_CAP) * kvHeads * headDim * 2),
+      kvSlots: isSliding ? C.window : KV_PRECAP,
+      scoreBuf: isSliding ? null : alloc(device, 16 * KV_SCAP * 4),
+      keepBuf: isSliding ? null : alloc(device, KV_BUDGET * 4),
+      kCache: alloc(device, (isSliding ? C.window : KV_PRECAP) * kvHeads * headDim * 2),
+      vCache: alloc(device, (isSliding ? C.window : KV_PRECAP) * kvHeads * headDim * 2),
     };
     if (!l.keqv) l.v = await q40(p + "attn_v.weight");
     l.qOut = l.q.dims[1];                                // rows
@@ -186,6 +192,8 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     if (i % 5 === 0) L(`  layer ${i}/${C.layers} (${((performance.now() - t0) / 1000).toFixed(0)}s)`);
   }
   L(`weights on GPU in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+
+  let kvCount = 0;                    // full-layer cache entries (CPU-tracked)
 
   // ---- activation buffers ----
   const KEXP = C.topK;
@@ -253,6 +261,8 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     chunkEnt: alloc(device, Math.max((C.nExperts + Math.ceil(MPRE * KEXP / 8)) * 8,
       (C.nExperts + Math.ceil(MPRE * KEXP / 32)) * 32) * 4),
     guRawP: alloc(device, MPRE * 2 * C.inter * 4),      // dense gate|up GEMM out
+    kvScratchK: alloc(device, KV_BUDGET * 2 * C.hdFull * 2),
+    kvScratchV: alloc(device, KV_BUDGET * 2 * C.hdFull * 2),
     guSlotsRawP: alloc(device, MPRE * KEXP * 2 * C.expInter * 4),  // grouped MoE GEMM out
     downSlotsP: alloc(device, MPRE * KEXP * C.hidden * 4),
   });
@@ -306,13 +316,19 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     l.downExpsMv = await K.pipeline("q40moedown", { IN: C.expInter, OUT: C.hidden, K: KEXP, BATCH: 0 });
     const cmode = l.isSliding ? 1 : 2;          // ring vs counted
     const ring = l.isSliding ? C.window : 1;
-    const seqCap = l.isSliding ? C.window : KV_CAP;   // probs[] sizing
+    const seqCap = l.isSliding ? C.window : KV_PRECAP + 128;   // probs[] sizing
     l.headprep = await K.pipeline("headprep", { QH: C.qHeads, KVH: l.kvHeads,
       HEAD_DIM: l.headDim, ROPE_ANGLES: ra, THETA: theta, EPS: C.eps,
       KEQV: l.keqv ? 1 : 0, WG: 128, BATCH: 0, CACHEMODE: cmode, RING: ring });
     l.attn = await K.pipeline("attnf32", { Q_HEADS: C.qHeads, KV_HEADS: l.kvHeads,
       HEAD_DIM: l.headDim, MAXSEQ: seqCap, WINDOW: l.isSliding ? C.window : 0, DT: 1,
       WG: 256, BATCH: 0, CACHEMODE: cmode, RING: ring, SCORE: 0 });
+    if (!l.isSliding) {
+      l.attnS = await K.pipeline("attnf32", { Q_HEADS: C.qHeads, KV_HEADS: l.kvHeads,
+        HEAD_DIM: l.headDim, MAXSEQ: seqCap, WINDOW: 0, DT: 1,
+        WG: 256, BATCH: 0, CACHEMODE: 2, RING: 1, SCORE: 1 });
+      l.gather = await K.pipeline("kvgather", { KVH: l.kvHeads, HD: l.headDim, WG: 64 });
+    }
     // ---- batched-prefill variants (M6/P5) ----
     l.qkvMm = await K.pipeline("q40mm", { IN: C.hidden, OUT: l.qkvRows, XF16: 1, WG: 64, MCOLS: 4 });
     l.oMm = await K.pipeline("q40mm", { IN: l.qOut, OUT: C.hidden, XF16: 1, WG: 32, MCOLS: 4 });
@@ -388,7 +404,8 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     } else {
       run(l.headprep, [A.qkv, l.qNorm, l.kNorm, P, l.kCache, l.vCache, A.dummySumI,
           A.qPrep], C.qHeads + 2 * l.kvHeads);
-      run(l.attn, [A.qPrep, l.kCache, l.vCache, P, A.attnOut, A.dumY2], [C.qHeads, 1]);
+      run(l.attnS ?? l.attn, [A.qPrep, l.kCache, l.vCache, P, A.attnOut,
+          l.scoreBuf ?? A.dumY2], [C.qHeads, 1]);
     }
     run(l.oMv, [A.dumX, l.o.nibBuf, l.o.scBuf, A.topkIdx, A.tmp, A.attnOut], wg(C.hidden, 2));
     run(kern.rmsacc3, [A.tmp, l.postAttnNorm, l.ffnNorm, l.routerS, l.preFfw2,
@@ -497,8 +514,15 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       const M = chunk.length;
       const last = off + M >= inputIds.length;
       device.queue.writeBuffer(A.tokPre, 0, new Uint32Array(chunk));
+      if (off === 0) {
+        kvCount = 0;
+        for (const l of layers) if (l.scoreBuf)
+          device.queue.writeBuffer(l.scoreBuf, 0, new Float32Array(16 * KV_SCAP));
+      }
+      if (kvCount + M > KV_PRECAP) throw new Error("prompt exceeds KV_PRECAP");
       device.queue.writeBuffer(A.paramsPre, 0,
-        new Uint32Array([off, M, 0, 0, off, 0, 0, 0]));
+        new Uint32Array([off, M, 0, 0, kvCount, 0, 0, 0]));
+      kvCount += M;
       const enc = device.createCommandEncoder();
       let pass = enc.beginComputePass();
       let run = mkRun(pass);
@@ -520,6 +544,78 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       }
       device.queue.submit([enc.finish()]);
     }
+  }
+
+  // budget compaction: keep top-(BUDGET-PROTECT) by accumulated attention mass
+  // + the PROTECT most recent slots; gather K/V via scratch; reset scores.
+  async function compactAll() {
+    const n = kvCount;
+    for (const l of layers) {
+      if (l.isSliding) continue;
+      const sc = new Float32Array(await readback(device, l.scoreBuf, 16 * KV_SCAP * 4));
+      const mass = new Float64Array(n);
+      for (let h = 0; h < C.qHeads; h++)
+        for (let t = 0; t < n; t++) mass[t] += sc[h * KV_SCAP + t];
+      const prot = Math.min(KV_PROTECT, n);
+      const cand = [];
+      for (let t = 0; t < n - prot; t++) cand.push(t);
+      cand.sort((a, b) => mass[b] - mass[a]);
+      const keep = cand.slice(0, Math.max(KV_BUDGET - prot, 0));
+      for (let t = n - prot; t < n; t++) keep.push(t);
+      keep.sort((a, b) => a - b);
+      device.queue.writeBuffer(l.keepBuf, 0, new Uint32Array(keep));
+      const enc = device.createCommandEncoder();
+      const pass = enc.beginComputePass();
+      const run = mkRun(pass);
+      run(l.gather, [l.keepBuf, l.kCache, l.vCache, A.kvScratchK, A.kvScratchV], keep.length);
+      pass.end();
+      const bytes = keep.length * l.kvHeads * l.headDim * 2;
+      enc.copyBufferToBuffer(A.kvScratchK, 0, l.kCache, 0, bytes);
+      enc.copyBufferToBuffer(A.kvScratchV, 0, l.vCache, 0, bytes);
+      device.queue.submit([enc.finish()]);
+      device.queue.writeBuffer(l.scoreBuf, 0, new Float32Array(16 * KV_SCAP));
+    }
+    await device.queue.onSubmittedWorkDone();
+    kvCount = KV_BUDGET;
+  }
+
+  // long-context generation: prefill (<= KV_PRECAP), probe step, one-shot
+  // compaction with the probe's scores (the M2 mechanism), then budget-
+  // maintained decode (recompact at KV_DECAP).
+  async function generateLong(inputIds, maxNew, eosIds = new Set([106, 1])) {
+    prefill(inputIds);
+    let pos = inputIds.length;
+    const g0 = await argmaxFast();
+    const out = [g0];
+    if (eosIds.has(g0)) return out;
+    let done = 1;
+    if (kvCount > KV_DECAP) {
+      // PROBE step first: one scored decode step on the FULL cache (the M2
+      // mechanism — generation queries rank retrieval targets), THEN compact.
+      decodeChunk(pos, 1, 0);
+      pos += 1;
+      const ring = new Uint32Array(await readback(device, A.tokRing, 8));
+      out.push(ring[0]);
+      done = 2;
+      await compactAll();
+      if (eosIds.has(ring[0])) return out;
+    }
+    while (done < maxNew) {
+      if (kvCount + 8 > KV_DECAP) await compactAll();
+      const n = Math.min(8, maxNew - done);
+      decodeChunk(pos, n, done - 1);
+      pos += n;
+      const ring = new Uint32Array(await readback(device, A.tokRing, (done - 1 + n) * 8));
+      let stop = false;
+      for (let k = done - 1; k < done - 1 + n; k++) {
+        const t = ring[k * 2];
+        out.push(t);
+        if (eosIds.has(t)) { stop = true; break; }
+      }
+      done += n;
+      if (stop) break;
+    }
+    return out.slice(0, maxNew);
   }
 
   async function generatePrefill(inputIds, maxNew, eosIds = new Set([106, 1])) {
@@ -559,8 +655,10 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   }
 
   async function step(token, pos) {
+    if (pos === 0) kvCount = 0;
     device.queue.writeBuffer(A.params, 0,
-      new Uint32Array([pos, pos + 1, token, 0, pos, pos + 1, 0, 0]));
+      new Uint32Array([pos, pos + 1, token, 0, kvCount, kvCount + 1, 0, 0]));
+    kvCount++;
     const enc = device.createCommandEncoder();
     const pass = enc.beginComputePass();
     encodeForward(mkRun(pass));
@@ -572,7 +670,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   async function profileStep(token, pos) {
     if (!device.features.has("timestamp-query")) return null;
     device.queue.writeBuffer(A.params, 0,
-      new Uint32Array([pos, pos + 1, token, 0, pos, pos + 1, 0, 0]));
+      new Uint32Array([pos, pos + 1, token, 0, kvCount, kvCount + 1, 0, 0]));
     const qs = device.createQuerySet({ type: "timestamp", count: 4096 });
     const enc = device.createCommandEncoder();
     const labels = [];
@@ -655,7 +753,8 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       for (let i = 0; i < n; i++) {
         const pos = startPos + c + i;
         device.queue.writeBuffer(A.paramsRing[i], 0,
-          new Uint32Array([pos, pos + 1, 0, 0, pos, pos + 1, 0, 0]));
+          new Uint32Array([pos, pos + 1, 0, 0, kvCount, kvCount + 1, 0, 0]));
+        kvCount++;
       }
       const enc = device.createCommandEncoder();
       for (let i = 0; i < n; i++) {
@@ -715,6 +814,6 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   }
 
   return { device, C, layers, model, A, kern, step, decodeChunk, generateFast,
-           prefill, generatePrefill, profilePrefill,
+           prefill, generatePrefill, profilePrefill, generateLong, compactAll,
            argmaxFast, readHidden, encodeForward, encodeLayerPub: encodeLayer, mkRun, bindPub: bind, rebuildPipelines, profileStep };
 }

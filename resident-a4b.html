@@ -230,6 +230,22 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
         L(`  ${(e.us / 1000).toFixed(3)}ms x${e.n}  ${lb.slice(0, 100)}`);
       return;
     }
+    if (cmd.mode === "needle") {
+      // Campaign 5 M3 gate: 2048-token needle, budget-compacted decode
+      const nd = await (await fetch("goldens/needle-a4b.json")).json();
+      let pass = 0;
+      for (const c of nd.cases) {
+        const out = await eng.generateLong(c.input_ids, 12);
+        const seq = c.code_ids;
+        let ok = false;
+        for (let i = 0; i + seq.length <= out.length; i++)
+          if (seq.every((t, j) => out[i + j] === t)) ok = true;
+        pass += ok ? 1 : 0;
+        L(`[needle] d=${c.depth} q${c.phrasing} ${ok ? "PASS" : "FAIL"} out=${JSON.stringify(out)}`);
+      }
+      L(`NEEDLE ${pass}/${nd.cases.length}`);
+      return;
+    }
     if (cmd.mode === "trace") {
       // Campaign 3: capture the step-plan (params-driven embed, for prompt
       // feeding) and the feed-plan (embedFeed reads amax, for generation) of
