@@ -157,3 +157,34 @@ mechanism), generateLong; needle gate = 6 cases (3 depths × 2 phrasings, ctx
   softmax, v2); the params[] extension invalidates Campaign 3's traced Metal
   manifests (re-trace needed if the runner is used again); needle task is
   phrasing-sensitive on A4B — parity, not absolute retrieval, is the gate.
+
+## M3-v2 + M4 close (2026-07-13): 8k landed; the claim is now measured end-to-end
+
+v2 work: (1) **ring clobber bug found & fixed** (Stage A's ring = exactly
+window let a prefill chunk overwrite entries its own earlier tokens needed;
+RING = window+512 slack + per-slot position recovery for window/causality —
+full-cache needle improved 2/6 → 3/6, so the bug had been suppressing
+results); (2) **attnos.wgsl** — online-softmax full-layer attention (8
+subgroups stream positions with running max/sum/acc + log-sum-exp merge; no
+workgroup probs[] → no context cap; the uniform-trip-count pattern for
+subgroupAdd), SCORE pass re-derives normalized mass for the compactor;
+PRECAP → 8320.
+
+**Final ladder (browser A4B engine, budget 640, all gates green):**
+
+| ctx | needle (full) | needle (budget) | decode full | decode budget |
+|---|---|---|---|---|
+| 2048 | 3/6 | 3/6 (parity) | 12.96 ms/tok | 11.18 (-14%) |
+| 4096 | 3/6 | 3/6 (parity) | — | — |
+| 8192 | 3/6 | 3/6 (parity) | 21.82 ms/tok | **12.48 (-43%)** |
+
+(3/6 = the q0 phrasing retrieves at ALL depths at every length — at 8k the
+budget is 7.8% and the needle still comes back; q1 phrasing fails even
+uncompressed = model-level, both paths identical.)
+
+**Campaign 5 verdicts: P1 ✓, P2 ✓ (decisively), P3 ✗, P4 ✓✓ (sign flipped:
+compression is FASTER, -14% @2k, -43% @8k), P5 ✓.** Engine capability: MAXSEQ
+640 → 8192 with fixed decode memory/cost; the only WebGPU A4B engine now does
+bounded-budget long context with measured retrieval parity. Known limits
+recorded: prompts ≤ 8192 (PRECAP; extendable), needle is phrasing-sensitive
+on A4B, Campaign-3 Metal traces need re-capture after the params[] extension.
