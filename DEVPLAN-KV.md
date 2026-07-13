@@ -188,3 +188,32 @@ compression is FASTER, -14% @2k, -43% @8k), P5 ✓.** Engine capability: MAXSEQ
 bounded-budget long context with measured retrieval parity. Known limits
 recorded: prompts ≤ 8192 (PRECAP; extendable), needle is phrasing-sensitive
 on A4B, Campaign-3 Metal traces need re-capture after the params[] extension.
+
+# Campaign 6 Phase B: ternarizing the A4B q4_0 engine (owner-directed)
+# (B-M0 begun 2026-07-13 23:35; E2B phase recorded in e2b-jamba DEVPLAN)
+
+**Why A4B is the honest host:** the E2B QAT-mobile base already int2's its
+insensitive layers (Google's QAT did our mixed-precision job); the A4B GGUF
+is uniformly q4_0, and its MoE EXPERT tensors are ~12.8 GB of the 14.4 GB —
+ternarizing experts alone takes the engine to ~7.3 GB (2-bit planes + per-row
+f16 scales), on a bandwidth-bound decoder.
+
+**Scope (phase B): EXPERT tensors only, decode path first.** Dense/attention
+stay q4_0. Offline python ternarizer reads the GGUF q4_0 blocks directly and
+writes a sidecar (t2 planes packed 16 vals/u32 in shift-grouped order so the
+WGSL unpack yields contiguous vec4s + per-row scales); the engine loads the
+sidecar under ?t2=1; two kernel variants carry decode (q40gu expert path,
+q40moedown).
+
+**Pre-registered predictions:**
+- **B-P1**: RTN per-row ternary on ALL experts: the token gate FAILS but text
+  stays coherent-ish (MoE expert redundancy absorbs more than dense layers
+  did on E2B); engine-measured ΔKL ∈ [0.5, 3]. (conf 50%)
+- **B-P2**: AA (h-diag from engine-captured moeIn/geglu second moments)
+  improves expert ternarization by ≥ 1.5× on ΔKL, as on E2B. (conf 55%)
+- **B-P3**: layer-mixed precision (worst ~8 layers' experts stay q4_0)
+  reaches gate-token drift only after ≥ 8 tokens AND ΔKL ≤ 0.3, at engine
+  memory ≤ 9 GB (vs 14.4). (conf 40%)
+- **B-P4**: decode gets FASTER: expert reads shrink ~2.8×; MoE-bound decode
+  fraction ~55% → predicted total decode ≥ 1.25× speedup. (conf 55%)
+- **B-P5**: ternarizer + loader + 2 kernels + first gate in ≤ 2 legs.
