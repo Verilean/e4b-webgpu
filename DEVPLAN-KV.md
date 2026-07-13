@@ -85,3 +85,26 @@ stream 150-213 (catastrophic). Ranking consistent with needle.
 merge (no gain) and stream (fails the point).** M3 = WGSL port to the A4B
 engine: MAXSEQ 640→8192, budgeted full-layer caches, in-engine probe-token
 scoring. P4 (≤5% decode overhead) and P5 (port ≤1 leg) stand.
+
+## M3 design note (2026-07-13): what compression actually buys the engine
+
+Honest re-derivation before porting: at 8k context the A4B full-layer caches
+are only ~168 MB — memory alone does NOT require compression at 8k. The real
+binding constraint is the ATTENTION KERNEL: attnf32 materializes
+`probs[MAXSEQ]` in workgroup memory (32 KB cap → MAXSEQ ≤ ~2k with the other
+arrays). So the sharp claim for M3 is:
+
+**A budget-capped cache (B=1024 + margin) keeps the existing simple kernel
+shape valid at ANY context length — unbounded context with FIXED memory and
+FIXED per-token attention cost, quality measured by the M2 gates.**
+
+Design: sliding layers → ring KV (slot = pos mod window; window already
+bounds them). Full layers → capacity CAP = B+128; the attention pass
+accumulates per-slot score mass (probs summed over heads — data it already
+computes); every time count hits CAP, a compaction evicts to top-B by score
+(v1: tiny readback of CAP floats every 128 tokens ≈ ≤0.3%/token, then a GPU
+gather; GPU-side selection later if the tax shows). Prefill beyond CAP:
+chunked prefill with a one-token generation-style probe per chunk boundary
+(applies the M2 mechanism finding). Robustness check added to the gates:
+needle with ≥2 question phrasings (the mechanism finding could be
+task-shaped).
