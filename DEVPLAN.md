@@ -1018,7 +1018,7 @@ only WebGPU A4B; standalone Metal runner loader). Owner's pick deferred —
 next project: gemma4 E2B Mamba/Jamba-ization (separate campaign).
 
 # Campaign 5: KV-cache compression — long context for the browser engines
-# (M0 begun 2026-07-13 12:00; pivot decision recorded in e2b-jamba Campaign 4)
+# (M0 begun 2026-07-13 12:38; pivot decision recorded in e2b-jamba Campaign 4)
 
 **Why this, from measured evidence:** Campaign 4 established that replacing
 attention MATH costs retrieval precision (0.2-1 nats/layer, additive).
