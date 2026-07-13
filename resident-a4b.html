@@ -232,7 +232,7 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
     }
     if (cmd.mode === "needle") {
       // Campaign 5 M3 gate: 2048-token needle, budget-compacted decode
-      const nd = await (await fetch("goldens/needle-a4b.json")).json();
+      const nd = await (await fetch(`goldens/needle${cmd.ctx ?? ""}-a4b.json`)).json();
       let pass = 0;
       for (const c of nd.cases) {
         const out = cmd.full ? await eng.generatePrefill(c.input_ids, 12)
@@ -249,7 +249,7 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
     }
     if (cmd.mode === "longbench") {
       // P4: decode ms/token at 2048 context — budget-compacted vs full cache
-      const nd = await (await fetch("goldens/needle-a4b.json")).json();
+      const nd = await (await fetch(`goldens/needle${cmd.ctx ?? ""}-a4b.json`)).json();
       const ids = nd.cases[1].input_ids;
       for (const full of [1, 0]) {
         eng.prefill(ids);

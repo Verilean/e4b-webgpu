@@ -14,11 +14,11 @@ import { initDevice, upload, alloc, readback, Kernels } from "./gpu.js";
 
 const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => {});
 const MAXSEQ = 640;                 // legacy positional cap (CACHEMODE 0 only)
-const KV_PRECAP = 2304;             // full-layer slots (prefill phase, prompt<=2048)
+const KV_PRECAP = 8320;             // full-layer slots (prompt <= 8192)
 const KV_BUDGET = 640;              // post-compaction full-layer entries
 const KV_DECAP = 768;               // decode recompaction threshold
 const KV_PROTECT = 64;              // most-recent slots always kept
-const KV_SCAP = KV_PRECAP + 128;    // score stride = attn probs template size
+const KV_SCAP = KV_PRECAP + 128;    // score stride (attnos SCAP)
 // sliding layers: ring slots = window (the ring IS the window)
 const ATTN2 = new URLSearchParams(globalThis.location?.search ?? "").get("attn2") === "1";
 const SGM_OFF = new URLSearchParams(globalThis.location?.search ?? "").get("sgm") === "0";
@@ -316,7 +316,7 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     l.downExpsMv = await K.pipeline("q40moedown", { IN: C.expInter, OUT: C.hidden, K: KEXP, BATCH: 0 });
     const cmode = l.isSliding ? 1 : 2;          // ring vs counted
     const ring = l.isSliding ? C.window + 512 : 1;   // +chunk slack (see attnf32)
-    const seqCap = l.isSliding ? C.window + 512 : KV_PRECAP + 128;   // probs[] sizing
+    const seqCap = l.isSliding ? C.window + 512 : 2432;   // attnf32 probs (sliding only; full layers use attnos)
     l.headprep = await K.pipeline("headprep", { QH: C.qHeads, KVH: l.kvHeads,
       HEAD_DIM: l.headDim, ROPE_ANGLES: ra, THETA: theta, EPS: C.eps,
       KEQV: l.keqv ? 1 : 0, WG: 128, BATCH: 0, CACHEMODE: cmode, RING: ring });
@@ -324,9 +324,10 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       HEAD_DIM: l.headDim, MAXSEQ: seqCap, WINDOW: l.isSliding ? C.window : 0, DT: 1,
       WG: 256, BATCH: 0, CACHEMODE: cmode, RING: ring, SCORE: 0 });
     if (!l.isSliding) {
-      l.attnS = await K.pipeline("attnf32", { Q_HEADS: C.qHeads, KV_HEADS: l.kvHeads,
-        HEAD_DIM: l.headDim, MAXSEQ: seqCap, WINDOW: 0, DT: 1,
-        WG: 256, BATCH: 0, CACHEMODE: 2, RING: 1, SCORE: 1 });
+      l.attnS = await K.pipeline("attnos", { Q_HEADS: C.qHeads, KV_HEADS: l.kvHeads,
+        HEAD_DIM: l.headDim, SCAP: KV_SCAP, BATCH: 0, SCORE: 1, WG: 256 });
+      l.attnOSB = await K.pipeline("attnos", { Q_HEADS: C.qHeads, KV_HEADS: l.kvHeads,
+        HEAD_DIM: l.headDim, SCAP: KV_SCAP, BATCH: 1, SCORE: 0, WG: 256 });
       l.gather = await K.pipeline("kvgather", { KVH: l.kvHeads, HD: l.headDim, WG: 64 });
     }
     // ---- batched-prefill variants (M6/P5) ----
@@ -436,7 +437,8 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
         [wg(l.qkvRows, 4), 1, zc]);
     run(l.headprepB, [A.qkvP, l.qNorm, l.kNorm, A.paramsPre, l.kCache, l.vCache, A.dummySumI,
         A.qPrepP], [C.qHeads + 2 * l.kvHeads, M]);
-    run(l.attnB, [A.qPrepP, l.kCache, l.vCache, A.paramsPre, A.attnOutP, A.dumY2], [C.qHeads, 1, M]);
+    run(l.attnOSB ?? l.attnB, [A.qPrepP, l.kCache, l.vCache, A.paramsPre, A.attnOutP,
+        l.scoreBuf ?? A.dumY2], [C.qHeads, 1, M]);
     if (l.oSg) run(l.oSg, [A.attnOutP, l.o.nibBuf, l.o.scBuf, A.paramsPre, A.tmpP],
         [C.hidden / 64, mt]);
     else run(l.oMm, [A.dumX, l.o.nibBuf, l.o.scBuf, A.paramsPre, A.tmpP, A.attnOutP],

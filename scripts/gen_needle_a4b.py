@@ -17,7 +17,7 @@ filler = tok(text, add_special_tokens=False).input_ids
 
 QS = ["\n\nQuestion: What is the secret access code? Answer: The secret access code is",
       "\n\nBefore we continue: recall the access code mentioned earlier. The code is"]
-CTX = 2048
+CTX = int(os.environ.get("CTX", 2048))
 cases = []
 for qi, q in enumerate(QS):
     for d in (0.1, 0.5, 0.9):
@@ -31,5 +31,5 @@ for qi, q in enumerate(QS):
         cases.append({"depth": d, "phrasing": qi, "code": code,
                       "code_ids": tok(f" {code}", add_special_tokens=False).input_ids,
                       "input_ids": ids})
-json.dump({"cases": cases}, open(os.path.join(ROOT, "goldens", "needle-a4b.json"), "w"))
+json.dump({"cases": cases}, open(os.path.join(ROOT, "goldens", os.environ.get("OUT", "needle-a4b.json")), "w"))
 print(f"{len(cases)} cases, ctx={CTX}")
