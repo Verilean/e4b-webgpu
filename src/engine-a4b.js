@@ -23,6 +23,7 @@ const KV_SCAP = KV_PRECAP + 128;    // score stride (attnos SCAP)
 const ATTN2 = new URLSearchParams(globalThis.location?.search ?? "").get("attn2") === "1";
 const SGM_OFF = new URLSearchParams(globalThis.location?.search ?? "").get("sgm") === "0";
 const GRP_OFF = new URLSearchParams(globalThis.location?.search ?? "").get("grp") === "0";
+const T2 = new URLSearchParams(globalThis.location?.search ?? "").get("t2") === "1";
 
 // ---- repackers (q4_0 / q6_K planes; 18B and 210B blocks are not word-aligned) ----
 function repackQ40(buf) {
@@ -75,6 +76,21 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
   const t0 = performance.now();
   const st = await openGGUF(ggufUrl);
   const device = await initDevice();
+  let t2side = null;
+  if (T2) {
+    const man = await (await fetch("model-a4b/ternary.json")).json();
+    const bin = await (await fetch("model-a4b/ternary.bin")).arrayBuffer();
+    t2side = { man: man.tensors, bin, quant: man.quant };
+    L(`ternary sidecar (${man.quant}): ${Object.keys(man.tensors).length} tensors, ${(bin.byteLength/1e9).toFixed(2)}GB`);
+  }
+  // ternary expert tensor -> { t2Buf, scBuf } (or null if not in sidecar)
+  function t2load(name) {
+    if (!t2side || !t2side.man[name]) return null;
+    const e = t2side.man[name];
+    const t2 = new Uint32Array(t2side.bin, e.off, e.t2Bytes / 4);
+    const sc = new Uint16Array(t2side.bin, e.off + e.t2Bytes, e.scBytes / 2);
+    return { t2Buf: upload(device, t2), scBuf: upload(device, sc), rows: e.rows, cols: e.cols };
+  }
   const K = new Kernels(device);
   const kvOf = (k) => st.kv[k];
 
@@ -172,6 +188,8 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       })(),
       guExps: await q40(p + "ffn_gate_up_exps.weight"),
       downExps: await q40(p + "ffn_down_exps.weight"),
+      guExpsT2: t2load(p + "ffn_gate_up_exps.weight"),
+      downExpsT2: t2load(p + "ffn_down_exps.weight"),
       ppO: alloc(device, (C.hidden + 4) * 4),                  // per-layer (avoid a
                                                                // cross-layer atomic RMW chain)
       kvSlots: isSliding ? C.window + 512 : KV_PRECAP,
@@ -314,6 +332,10 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
       E: C.nExperts, K: KEXP, EXPERT: 2, BATCH: 0 });
     l.downMv = await K.pipeline("q40mv", { IN: C.inter, OUT: C.hidden, EXPERT: 0, XSLOT: 0, XF16: 1, WG: 32 });
     l.downExpsMv = await K.pipeline("q40moedown", { IN: C.expInter, OUT: C.hidden, K: KEXP, BATCH: 0 });
+    if (l.guExpsT2) {
+      l.guAllT2 = await K.pipeline("t2gu", { IN: C.hidden, FF: C.expInter, FF2: C.inter, K: KEXP });
+      l.downExpsT2Mv = await K.pipeline("t2moedown", { IN: C.expInter, OUT: C.hidden, K: KEXP });
+    }
     const cmode = l.isSliding ? 1 : 2;          // ring vs counted
     const ring = l.isSliding ? C.window + 512 : 1;   // +chunk slack (see attnf32)
     const seqCap = l.isSliding ? C.window + 512 : 2432;   // attnf32 probs (sliding only; full layers use attnos)
@@ -414,12 +436,23 @@ export async function loadEngineA4B(ggufUrl = "model-a4b/gemma-4-26B_q4_0-it.ggu
     // dense and MoE branches interleaved: hazard-free neighbors overlap on GPU
     run(kern.routerTop, [A.routerIn, l.routerW, l.pes, A.routerScores, A.routerCtr,
         A.topkIdx, A.topkW], C.nExperts);
-    run(l.guAll, [A.moeIn, l.guExps.nibBuf, l.guExps.scBuf, A.topkIdx, A.dumY1, A.gegluSlots,
-        A.normed, l.guCat.nibBuf, l.guCat.scBuf, A.geglu],
-        [wg(C.inter, 4), 1, 1 + KEXP]);
+    if (l.guAllT2) {
+      run(l.guAllT2, [A.moeIn, l.guExpsT2.t2Buf, l.guExpsT2.scBuf, A.topkIdx, A.dumY1, A.gegluSlots,
+          A.normed, l.guCat.nibBuf, l.guCat.scBuf, A.geglu],
+          [wg(C.inter, 4), 1, 1 + KEXP]);
+    } else {
+      run(l.guAll, [A.moeIn, l.guExps.nibBuf, l.guExps.scBuf, A.topkIdx, A.dumY1, A.gegluSlots,
+          A.normed, l.guCat.nibBuf, l.guCat.scBuf, A.geglu],
+          [wg(C.inter, 4), 1, 1 + KEXP]);
+    }
     run(l.downMv, [A.dumX, l.down.nibBuf, l.down.scBuf, A.topkIdx, A.tmp, A.geglu], wg(C.hidden, 2));
-    run(l.downExpsMv, [A.gegluSlots, l.downExps.nibBuf, l.downExps.scBuf, A.topkIdx, A.topkW,
-        A.moeOut], wg(C.hidden, 4));
+    if (l.downExpsT2Mv) {
+      run(l.downExpsT2Mv, [A.gegluSlots, l.downExpsT2.t2Buf, l.downExpsT2.scBuf, A.topkIdx, A.topkW,
+          A.moeOut], wg(C.hidden, 4));
+    } else {
+      run(l.downExpsMv, [A.gegluSlots, l.downExps.nibBuf, l.downExps.scBuf, A.topkIdx, A.topkW,
+          A.moeOut], wg(C.hidden, 4));
+    }
     // fused tail: postFfw1/2 + add + post norm + residual + scalar (+ next norm)
     const nx = layers[l.i + 1];
     run(l.tail, [A.tmp, l.postFfw1, A.moeOut, l.postFfw2, l.postFfw, A.hiddenB,
