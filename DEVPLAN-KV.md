@@ -274,3 +274,29 @@ Production constants (W=1024, C=MPRE=512): RING=1536 (shipped) PASS,
 MPRE past 513 without growing the ring breaks the window silently.**
 Guard added value: specs/KVRing.tla + specs/sweep.sh re-check in ~30s;
 run after any change to MPRE / window / ring / recovery formula.
+
+### Campaign V, part 2 (2026-07-15): the checker toolchain is live
+
+- **wgsl-check** (hesper `lake exe wgsl-check`, pure Lean): static
+  write-bounds checker for WGSL compute kernels. Detects the 54a2a60 race
+  class (roundup-grid unguarded stores clamp-writing the last element) from
+  kernel source + dispatch manifest, incl. runtime guards via traced params
+  values. Validated on THIS engine's full trace (1464 ops -> 144 unique
+  dispatches, 96 kernels): **0 FAIL, 9 WARN, zero false positives** after
+  six precision fixes earned on real kernels (dead template branches,
+  loop-bound semantics, builtin-component refinement, lazy lets, else-if
+  chain negation, taint tracking).
+- The 9 WARNs are exactly the data-dependent stores: expgroup counting sort
+  (chunkExp/chunkEnt) and grouped-MoE gather (y/yh). The expgroup one is now
+  DISCHARGED by proof: hesper `specs/ChunkCap.lean` shows cap 640 =
+  the provable bound sum ceil(n_e/8) <= T/8 + E (T=MPRE*K=4096, E=128) for
+  ALL routings (attainable max 624, slack 16). Constraint made explicit:
+  **raising MPRE*K past 4096 or experts past 128 overflows chunkExp
+  silently.**
+- Workflow: run the resident `{"mode":"trace"}` cmd once, then
+  `curl :8877/check` (serve.py /check endpoint) — converts the trace
+  (scripts/trace2check.py) and runs the checker, ~seconds.
+- WMMA store-extent checking deferred WITH REASON: this engine's kernels
+  stage subgroupMatrixStore through workgroup scratch and write storage via
+  ordinary guarded stores (the safe pattern) — zero storage-target WMMA
+  stores in the trace, nothing to validate the machinery against.

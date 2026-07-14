@@ -52,6 +52,30 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if self.path == "/check":
+            # convert the last posted trace and run the static write-bounds
+            # checker: trace.json -> checkout/manifest.json -> wgsl-check
+            import subprocess
+            wgsl_check = os.environ.get(
+                "WGSL_CHECK",
+                os.path.join(ROOT, "..", "hesper", ".lake", "build", "bin", "wgsl-check"))
+            out = b""
+            try:
+                out += subprocess.run(
+                    ["python3", os.path.join(ROOT, "scripts", "trace2check.py")],
+                    capture_output=True, timeout=120).stdout
+                r = subprocess.run(
+                    [wgsl_check, os.path.join(ROOT, "metal", "out", "checkout", "manifest.json")],
+                    capture_output=True, timeout=300)
+                out += r.stdout + r.stderr
+                out += f"exit={r.returncode}\n".encode()
+            except Exception as e:  # noqa: BLE001 — report, don't kill the harness
+                out += f"check failed: {e}\n".encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+            return
         if self.path.startswith("/cmd"):
             # long-poll up to ~25s for a command
             import time
