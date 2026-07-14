@@ -237,3 +237,26 @@ q40moedown).
   The 12.8 GB -> 5.74 GB memory saving stands (B-P5 class); the SPEED story
   for ternary lives in PREFILL (grouped path reads all routed experts) —
   t2 grouped-prefill kernels not built yet.
+
+## Campaign V (verification probe, 2026-07-14): TLA+ model of the CACHEMODE-1
+## ring protocol
+
+Prior-art check: generic circular-buffer TLA+ specs are classic tutorial
+material; NO formal spec / model check of an LLM KV-cache protocol (sliding
+window + chunked prefill + slot position recovery) found. The niche is open.
+
+Protocol under check (attnf32.wgsl CACHEMODE 1 + headprep + engine):
+write slot = pos % RING, RING = W+512, chunk C = MPRE = 512, all chunk writes
+precede its reads; reader recovers ps = maxW-((maxW+RING-t)%RING), dead iff
+ps > qp or ps+W <= qp. Paper analysis: worst live distance = maxW-(qp-W+1)
+with qp = chunk base -> W+C-2, so safety needs RING >= W+C-1.
+
+- **V-P1 (soundness)**: for EVERY ring size, a live (non-dead) slot's
+  recovered position equals its true content — clobber manifests ONLY as
+  silent context loss (needle degradation), never as reading a wrong K/V as
+  position p. (conf 75%)
+- **V-P2 (completeness bound)**: the window is fully served iff
+  RING >= W+C-1. Current RING = W+C is therefore safe with exactly ONE slot
+  of spare margin: raising MPRE past 513 (or any second in-flight writer)
+  silently breaks it. TLC finds the loss at RING = W+C-2 and proves the
+  small-instance bound tight. (conf 70%)
