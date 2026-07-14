@@ -300,3 +300,30 @@ run after any change to MPRE / window / ring / recovery formula.
   stage subgroupMatrixStore through workgroup scratch and write storage via
   ordinary guarded stores (the safe pattern) — zero storage-target WMMA
   stores in the trace, nothing to validate the machinery against.
+
+## Campaign V part 3 pre-registration (2026-07-15): mutation study — does the
+## checker get you to the bug FASTER than expectation matching?
+
+Design: inject mechanical mutations into copies of the traced production
+kernels (96 kernels, real manifest), classes: (G) delete a store guard,
+(R) round a grid dim up past the logical count, (S) stride off-by-one in a
+store index, (B) shrink a binding's byte size, (N) numeric-only control
+(perturb a constant in the VALUE computation, memory-safe). Measure:
+1. wgsl-check detection + line-accuracy per class,
+2. golden-gate detection across R repeated engine runs with the mutated
+   kernel actually running (false-pass rate of expectation matching),
+3. time-to-line: checker (automatic) vs symptom-driven manual localization.
+
+- **V-P4**: checker detects ≥ 80% of G/R/S/B while flagging 0% of N (the
+  class boundary is the claim, not omniscience). (conf 70%)
+- **V-P5**: golden false-pass: for ≥ 1/3 of DETECTABLE race-class mutations,
+  a single gate run PASSES at least once in R=5 (non-determinism makes
+  expectation matching unreliable exactly where the checker is strong).
+  (conf 55%)
+- **V-P6 (novelty edge)**: ≥ 1 mutation class exists where detection
+  REQUIRES the manifest context (real grid/sizes/params) — i.e. the same
+  kernel text is safe under one dispatch and broken under another, which
+  kernel-only tools (GPUVerify-class) cannot decide. (conf 85% — B is
+  constructed to be this)
+Qualitative companion: the DG->JS port diary (every /check FAIL caught
+before first run, vs bugs that survived to runtime debugging).
