@@ -260,3 +260,17 @@ with qp = chunk base -> W+C-2, so safety needs RING >= W+C-1.
   of spare margin: raising MPRE past 513 (or any second in-flight writer)
   silently breaks it. TLC finds the loss at RING = W+C-2 and proves the
   small-instance bound tight. (conf 70%)
+
+### Campaign V verdicts (2026-07-14, TLC): BOTH HIT
+Sweep (NCHUNKS=4, GEN=6): boundary exactly RING = W+C-1 in all three
+(W,C) instances — (4,3): fail@5/pass@6; (6,5): fail@9/pass@10; (5,2):
+fail@5/pass@6. SoundRec never violated anywhere (every failure is
+Complete) => V-P1 confirmed: clobber is always SILENT CONTEXT LOSS,
+never a stale K/V misread — matching the observed symptom class
+(needle degradation, no garbage).
+Production constants (W=1024, C=MPRE=512): RING=1536 (shipped) PASS,
+1535 (minimum) PASS, 1534 FAIL => V-P2 confirmed, bound tight.
+**Actionable: the shipped ring has exactly ONE slot of slack. Raising
+MPRE past 513 without growing the ring breaks the window silently.**
+Guard added value: specs/KVRing.tla + specs/sweep.sh re-check in ~30s;
+run after any change to MPRE / window / ring / recovery formula.
