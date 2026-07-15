@@ -127,3 +127,28 @@ same stores wgsl-check flags as data-dependent WARNs). Discriminator in
 flight: DG_NOMOERB=1 DG_NOQKVRB=1 trace (no subgroup-matrix, per-slot MoE)
 replayed on Chrome — if step-0 goldens then match ≈exactly, the reg/grouped
 class is the culprit; if still muted, suspicion moves to dp4a/warp/atomics.
+
+## R18 (2026-07-15): the router pinpointed — cancellation-amplified FMA drift
+
+dp4a-path trace (DG_NOMOERB=1 DG_NOQKVRB=1; hesper still decodes fine:
+"Capital: Paris.", acc=122): the Chrome replay curve is PURE ULP (1e-6/-7)
+through attention/dense/quantize — confirming the reg-path's 1e-4..1e-3
+floor was f16-WMMA accumulation order. Then ONE kernel jumps ×1000:
+**#30 router GEMV (rw·tmps → rlogits): 1.9e-7 in → 2.5e-3 out.**
+Kernel text = plain sequential f32 dot (K=2816), no subgroups, no
+transcendentals ⇒ the only cross-compiler difference is FMA contraction;
+router logits are heavily-cancelling sums, so ~1e-6 absolute per-term drift
+becomes ~1e-3 RELATIVE on the result. Downstream: top-8 near-tie flips
+(#31 wts 3.1e-3, #38 gather 5.5e-2 — integer idxs flips invisible to the
+float metric, noted in R17) → MoE mixture differs → decoherence.
+
+OPEN CONTRADICTION (next discriminator): hesper tolerates KERNEL SWAPS
+(dp4a↔reg, f16 dense) with only near-tie wording changes — so "a few expert
+flips" should not GLOBALLY mute confidence (engine oh mean 4.09 vs golden
+0.64 across ~all positions). Either the flips compound differently across
+30 layers than kernel swaps do, or something else still lurks.
+**Queued experiment**: swap the engine's router dispatch for a
+Kahan-summation router kernel (Chrome-side only). If step-0 oh ≈ golden
+(0.037-class) → cancellation-drift is THE lever and the engine ships a
+compensated router by default; if not → hunt continues with per-position
+H distributions (mean/max metrics hide the shape).
