@@ -1,0 +1,847 @@
+
+
+                    #ifdef __clang__
+                    #pragma clang diagnostic ignored "-Wall"
+                    #endif
+                
+#pragma METAL fp math_mode(relaxed)
+#include <metal_stdlib>
+using namespace metal;
+
+template<typename T, size_t N>
+struct tint_array {
+  const constant T& operator[](size_t i) const constant { return elements[i]; }
+  device T& operator[](size_t i) device { return elements[i]; }
+  const device T& operator[](size_t i) const device { return elements[i]; }
+  thread T& operator[](size_t i) thread { return elements[i]; }
+  const thread T& operator[](size_t i) const thread { return elements[i]; }
+  threadgroup T& operator[](size_t i) threadgroup { return elements[i]; }
+  const threadgroup T& operator[](size_t i) const threadgroup { return elements[i]; }
+  T elements[N];
+};
+
+struct tint_struct_1 {
+  tint_array<uint4, 1> tint_member_6;
+};
+
+struct tint_struct {
+  const device tint_array<uint, 1622016>* tint_member;
+  const device tint_array<uint, 319104>* tint_member_1;
+  device tint_array<float, 780032>* tint_member_2;
+  threadgroup tint_array<uint, 2368>* tint_member_3;
+  threadgroup tint_array<uint, 2336>* tint_member_4;
+  const constant tint_struct_1* tint_member_5;
+};
+
+struct tint_struct_2 {
+  tint_array<uint, 2368> tint_member_7;
+  tint_array<uint, 2336> tint_member_8;
+};
+
+uint v(uint v_1, uint v_2) {
+  return (v_1 / select(v_2, 1u, (v_2 == 0u)));
+}
+
+int v_3(int4 v_4, int4 v_5) {
+  return as_type<int>((as_type<uint>(as_type<int>((as_type<uint>(as_type<int>((as_type<uint>(as_type<int4>((as_type<uint4>(v_4) * as_type<uint4>(v_5))).x) + as_type<uint>(as_type<int4>((as_type<uint4>(v_4) * as_type<uint4>(v_5))).y)))) + as_type<uint>(as_type<int4>((as_type<uint4>(v_4) * as_type<uint4>(v_5))).z)))) + as_type<uint>(as_type<int4>((as_type<uint4>(v_4) * as_type<uint4>(v_5))).w)));
+}
+
+void v_6(uint3 v_7, uint3 v_8, uint3 v_9, uint v_10, tint_struct v_11) {
+  {
+    uint v_12 = 0u;
+    v_12 = v_10;
+    while(true) {
+      uint const v_13 = v_12;
+      if ((v_13 >= 2336u)) {
+        break;
+      }
+      (*v_11.tint_member_4)[v_13] = 0u;
+      {
+        v_12 = (v_13 + 256u);
+      }
+      continue;
+    }
+  }
+  {
+    uint v_14 = 0u;
+    v_14 = v_10;
+    while(true) {
+      uint const v_15 = v_14;
+      if ((v_15 >= 2368u)) {
+        break;
+      }
+      (*v_11.tint_member_3)[v_15] = 0u;
+      {
+        v_14 = (v_15 + 256u);
+      }
+      continue;
+    }
+  }
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+  uint v_16 = 0u;
+  float v_17 = 0.0f;
+  float v_18 = 0.0f;
+  float v_19 = 0.0f;
+  float v_20 = 0.0f;
+  float v_21 = 0.0f;
+  float v_22 = 0.0f;
+  float v_23 = 0.0f;
+  float v_24 = 0.0f;
+  {
+    uint v_25 = 0u;
+    while(true) {
+      if ((v_25 < 16u)) {
+      } else {
+        break;
+      }
+      {
+        uint v_26 = 0u;
+        while(true) {
+          if ((v_26 < 9u)) {
+          } else {
+            break;
+          }
+          uint const v_27 = (v(((v_26 * 256u) + v_8.x), 36u) * 37u);
+          uint const v_28 = ((v_26 * 256u) + v_8.x);
+          threadgroup uint* const v_29 = (&(*v_11.tint_member_3)[min((v_27 + (v_28 - (v(((v_26 * 256u) + v_8.x), 36u) * 36u))), 2367u)]);
+          uint const v_30 = (0u + (((v_9.x * 64u) + v(((v_26 * 256u) + v_8.x), 36u)) * 576u));
+          uint const v_31 = (v_30 + (v_25 * 36u));
+          uint const v_32 = ((v_26 * 256u) + v_8.x);
+          (*v_29) = (*v_11.tint_member)[min((v_31 + (v_32 - (v(((v_26 * 256u) + v_8.x), 36u) * 36u))), 1622015u)];
+          {
+            v_26 = (v_26 + 1u);
+          }
+          continue;
+        }
+      }
+      {
+        uint v_33 = 0u;
+        while(true) {
+          if ((v_33 < 9u)) {
+          } else {
+            break;
+          }
+          if ((((v_9.y * 32u) + v(((v_33 * 256u) + v_8.x), 72u)) < 277u)) {
+            uint const v_34 = (v(((v_33 * 256u) + v_8.x), 72u) * 73u);
+            uint const v_35 = ((v_33 * 256u) + v_8.x);
+            threadgroup uint* const v_36 = (&(*v_11.tint_member_4)[min((v_34 + (v_35 - (v(((v_33 * 256u) + v_8.x), 72u) * 72u))), 2335u)]);
+            uint const v_37 = ((0u + ((v_9.y * 32u) + v(((v_33 * 256u) + v_8.x), 72u))) * 1152u);
+            uint const v_38 = (v_37 + (v_25 * 72u));
+            uint const v_39 = ((v_33 * 256u) + v_8.x);
+            (*v_36) = (*v_11.tint_member_1)[min((v_38 + (v_39 - (v(((v_33 * 256u) + v_8.x), 72u) * 72u))), 319103u)];
+          }
+          {
+            v_33 = (v_33 + 1u);
+          }
+          continue;
+        }
+      }
+      threadgroup_barrier(mem_flags::mem_threadgroup);
+      {
+        uint v_40 = 0u;
+        while(true) {
+          if ((v_40 < 4u)) {
+          } else {
+            break;
+          }
+          {
+            uint v_41 = 0u;
+            while(true) {
+              if ((v_41 < 4u)) {
+              } else {
+                break;
+              }
+              float const v_42 = v_17;
+              float const v_43 = float2(as_type<half2>((*v_11.tint_member_3)[min(((0u + (v_8.x & 31u)) * 37u), 2367u)])).x;
+              float const v_44 = float2(as_type<half2>((*v_11.tint_member_4)[(((0u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u))])).x;
+              uint const v_45 = ((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + (4u + (((v_40 * 2u) * 4u) + v_41))), 2367u)] & 252645135u);
+              uint const v_46 = (*v_11.tint_member_4)[((((0u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u)) + (1u + v_41))];
+              uint4 const v_47 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_48 = as_type<int4>((uint4(v_45) << v_47));
+              int4 const v_49 = (v_48 >> uint4(24u));
+              uint4 const v_50 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_51 = as_type<int4>((uint4(v_46) << v_50));
+              int const v_52 = v_3(v_49, (v_51 >> uint4(24u)));
+              uint const v_53 = ((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + ((4u + (((v_40 * 2u) * 4u) + v_41)) + 4u)), 2367u)] & 252645135u);
+              uint const v_54 = (*v_11.tint_member_4)[((((0u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u)) + (5u + v_41))];
+              uint4 const v_55 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_56 = as_type<int4>((uint4(v_53) << v_55));
+              int4 const v_57 = (v_56 >> uint4(24u));
+              uint4 const v_58 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_59 = as_type<int4>((uint4(v_54) << v_58));
+              float const v_60 = float(as_type<int>((as_type<uint>(v_52) + as_type<uint>(v_3(v_57, (v_59 >> uint4(24u)))))));
+              float const v_61 = (v_44 * (v_60 * float(select(((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> ((((v_40 * 2u) - 4u) * 8u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> (((((v_40 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> (((v_40 * 2u) * 8u) & 31u)) & 63u), ((v_40 * 2u) < 4u)))));
+              float const v_62 = float2(as_type<half2>((*v_11.tint_member_4)[(((0u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u))])).x;
+              uint const v_63 = (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + (4u + (((v_40 * 2u) * 4u) + v_41))), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_64 = (*v_11.tint_member_4)[((((0u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u)) + (1u + v_41))];
+              uint4 const v_65 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_66 = as_type<int4>((uint4(v_63) << v_65));
+              int4 const v_67 = (v_66 >> uint4(24u));
+              uint4 const v_68 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_69 = as_type<int4>((uint4(v_64) << v_68));
+              int const v_70 = v_3(v_67, (v_69 >> uint4(24u)));
+              uint const v_71 = (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + ((4u + (((v_40 * 2u) * 4u) + v_41)) + 4u)), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_72 = (*v_11.tint_member_4)[((((0u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u)) + (5u + v_41))];
+              uint4 const v_73 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_74 = as_type<int4>((uint4(v_71) << v_73));
+              int4 const v_75 = (v_74 >> uint4(24u));
+              uint4 const v_76 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_77 = as_type<int4>((uint4(v_72) << v_76));
+              float const v_78 = float(as_type<int>((as_type<uint>(v_70) + as_type<uint>(v_3(v_75, (v_77 >> uint4(24u)))))));
+              float const v_79 = (v_43 * (v_61 + (v_62 * (v_78 * float(select(((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> (((((v_40 * 2u) + 1u) - 4u) * 8u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> ((((((v_40 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> ((((v_40 * 2u) + 1u) * 8u) & 31u)) & 63u), (((v_40 * 2u) + 1u) < 4u)))))));
+              float const v_80 = float2(as_type<half2>((*v_11.tint_member_3)[min(((0u + (v_8.x & 31u)) * 37u), 2367u)])).y;
+              float const v_81 = float2(as_type<half2>((*v_11.tint_member_4)[(((0u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u))])).x;
+              uint const v_82 = (*v_11.tint_member_4)[((((0u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u)) + (1u + v_41))];
+              uint4 const v_83 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_84 = as_type<int4>((uint4(16843009u) << v_83));
+              int4 const v_85 = (v_84 >> uint4(24u));
+              uint4 const v_86 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_87 = as_type<int4>((uint4(v_82) << v_86));
+              int const v_88 = v_3(v_85, (v_87 >> uint4(24u)));
+              uint const v_89 = (*v_11.tint_member_4)[((((0u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u)) + (5u + v_41))];
+              uint4 const v_90 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_91 = as_type<int4>((uint4(16843009u) << v_90));
+              int4 const v_92 = (v_91 >> uint4(24u));
+              uint4 const v_93 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_94 = as_type<int4>((uint4(v_89) << v_93));
+              float const v_95 = float(as_type<int>((as_type<uint>(v_88) + as_type<uint>(v_3(v_92, (v_94 >> uint4(24u)))))));
+              float const v_96 = (v_81 * (v_95 * float(select(((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> (((((v_40 * 2u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> (((((v_40 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> (((v_40 * 2u) * 8u) & 31u)) & 63u), ((v_40 * 2u) < 4u)))));
+              float const v_97 = float2(as_type<half2>((*v_11.tint_member_4)[(((0u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u))])).x;
+              uint const v_98 = (*v_11.tint_member_4)[((((0u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u)) + (1u + v_41))];
+              uint4 const v_99 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_100 = as_type<int4>((uint4(16843009u) << v_99));
+              int4 const v_101 = (v_100 >> uint4(24u));
+              uint4 const v_102 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_103 = as_type<int4>((uint4(v_98) << v_102));
+              int const v_104 = v_3(v_101, (v_103 >> uint4(24u)));
+              uint const v_105 = (*v_11.tint_member_4)[((((0u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u)) + (5u + v_41))];
+              uint4 const v_106 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_107 = as_type<int4>((uint4(16843009u) << v_106));
+              int4 const v_108 = (v_107 >> uint4(24u));
+              uint4 const v_109 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_110 = as_type<int4>((uint4(v_105) << v_109));
+              float const v_111 = float(as_type<int>((as_type<uint>(v_104) + as_type<uint>(v_3(v_108, (v_110 >> uint4(24u)))))));
+              v_17 = (v_42 + (v_79 - (v_80 * (v_96 + (v_97 * (v_111 * float(select(((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> ((((((v_40 * 2u) + 1u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> ((((((v_40 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> ((((v_40 * 2u) + 1u) * 8u) & 31u)) & 63u), (((v_40 * 2u) + 1u) < 4u)))))))));
+              float const v_112 = v_19;
+              float const v_113 = float2(as_type<half2>((*v_11.tint_member_3)[min(((0u + (v_8.x & 31u)) * 37u), 2367u)])).x;
+              float const v_114 = float2(as_type<half2>((*v_11.tint_member_4)[(((8u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u))])).x;
+              uint const v_115 = ((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + (4u + (((v_40 * 2u) * 4u) + v_41))), 2367u)] & 252645135u);
+              uint const v_116 = (*v_11.tint_member_4)[((((8u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u)) + (1u + v_41))];
+              uint4 const v_117 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_118 = as_type<int4>((uint4(v_115) << v_117));
+              int4 const v_119 = (v_118 >> uint4(24u));
+              uint4 const v_120 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_121 = as_type<int4>((uint4(v_116) << v_120));
+              int const v_122 = v_3(v_119, (v_121 >> uint4(24u)));
+              uint const v_123 = ((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + ((4u + (((v_40 * 2u) * 4u) + v_41)) + 4u)), 2367u)] & 252645135u);
+              uint const v_124 = (*v_11.tint_member_4)[((((8u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u)) + (5u + v_41))];
+              uint4 const v_125 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_126 = as_type<int4>((uint4(v_123) << v_125));
+              int4 const v_127 = (v_126 >> uint4(24u));
+              uint4 const v_128 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_129 = as_type<int4>((uint4(v_124) << v_128));
+              float const v_130 = float(as_type<int>((as_type<uint>(v_122) + as_type<uint>(v_3(v_127, (v_129 >> uint4(24u)))))));
+              float const v_131 = (v_114 * (v_130 * float(select(((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> ((((v_40 * 2u) - 4u) * 8u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> (((((v_40 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> (((v_40 * 2u) * 8u) & 31u)) & 63u), ((v_40 * 2u) < 4u)))));
+              float const v_132 = float2(as_type<half2>((*v_11.tint_member_4)[(((8u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u))])).x;
+              uint const v_133 = (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + (4u + (((v_40 * 2u) * 4u) + v_41))), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_134 = (*v_11.tint_member_4)[((((8u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u)) + (1u + v_41))];
+              uint4 const v_135 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_136 = as_type<int4>((uint4(v_133) << v_135));
+              int4 const v_137 = (v_136 >> uint4(24u));
+              uint4 const v_138 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_139 = as_type<int4>((uint4(v_134) << v_138));
+              int const v_140 = v_3(v_137, (v_139 >> uint4(24u)));
+              uint const v_141 = (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + ((4u + (((v_40 * 2u) * 4u) + v_41)) + 4u)), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_142 = (*v_11.tint_member_4)[((((8u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u)) + (5u + v_41))];
+              uint4 const v_143 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_144 = as_type<int4>((uint4(v_141) << v_143));
+              int4 const v_145 = (v_144 >> uint4(24u));
+              uint4 const v_146 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_147 = as_type<int4>((uint4(v_142) << v_146));
+              float const v_148 = float(as_type<int>((as_type<uint>(v_140) + as_type<uint>(v_3(v_145, (v_147 >> uint4(24u)))))));
+              float const v_149 = (v_113 * (v_131 + (v_132 * (v_148 * float(select(((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> (((((v_40 * 2u) + 1u) - 4u) * 8u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> ((((((v_40 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> ((((v_40 * 2u) + 1u) * 8u) & 31u)) & 63u), (((v_40 * 2u) + 1u) < 4u)))))));
+              float const v_150 = float2(as_type<half2>((*v_11.tint_member_3)[min(((0u + (v_8.x & 31u)) * 37u), 2367u)])).y;
+              float const v_151 = float2(as_type<half2>((*v_11.tint_member_4)[(((8u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u))])).x;
+              uint const v_152 = (*v_11.tint_member_4)[((((8u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u)) + (1u + v_41))];
+              uint4 const v_153 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_154 = as_type<int4>((uint4(16843009u) << v_153));
+              int4 const v_155 = (v_154 >> uint4(24u));
+              uint4 const v_156 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_157 = as_type<int4>((uint4(v_152) << v_156));
+              int const v_158 = v_3(v_155, (v_157 >> uint4(24u)));
+              uint const v_159 = (*v_11.tint_member_4)[((((8u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u)) + (5u + v_41))];
+              uint4 const v_160 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_161 = as_type<int4>((uint4(16843009u) << v_160));
+              int4 const v_162 = (v_161 >> uint4(24u));
+              uint4 const v_163 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_164 = as_type<int4>((uint4(v_159) << v_163));
+              float const v_165 = float(as_type<int>((as_type<uint>(v_158) + as_type<uint>(v_3(v_162, (v_164 >> uint4(24u)))))));
+              float const v_166 = (v_151 * (v_165 * float(select(((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> (((((v_40 * 2u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> (((((v_40 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> (((v_40 * 2u) * 8u) & 31u)) & 63u), ((v_40 * 2u) < 4u)))));
+              float const v_167 = float2(as_type<half2>((*v_11.tint_member_4)[(((8u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u))])).x;
+              uint const v_168 = (*v_11.tint_member_4)[((((8u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u)) + (1u + v_41))];
+              uint4 const v_169 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_170 = as_type<int4>((uint4(16843009u) << v_169));
+              int4 const v_171 = (v_170 >> uint4(24u));
+              uint4 const v_172 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_173 = as_type<int4>((uint4(v_168) << v_172));
+              int const v_174 = v_3(v_171, (v_173 >> uint4(24u)));
+              uint const v_175 = (*v_11.tint_member_4)[((((8u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u)) + (5u + v_41))];
+              uint4 const v_176 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_177 = as_type<int4>((uint4(16843009u) << v_176));
+              int4 const v_178 = (v_177 >> uint4(24u));
+              uint4 const v_179 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_180 = as_type<int4>((uint4(v_175) << v_179));
+              float const v_181 = float(as_type<int>((as_type<uint>(v_174) + as_type<uint>(v_3(v_178, (v_180 >> uint4(24u)))))));
+              v_19 = (v_112 + (v_149 - (v_150 * (v_166 + (v_167 * (v_181 * float(select(((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> ((((((v_40 * 2u) + 1u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> ((((((v_40 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> ((((v_40 * 2u) + 1u) * 8u) & 31u)) & 63u), (((v_40 * 2u) + 1u) < 4u)))))))));
+              float const v_182 = v_21;
+              float const v_183 = float2(as_type<half2>((*v_11.tint_member_3)[min(((0u + (v_8.x & 31u)) * 37u), 2367u)])).x;
+              float const v_184 = float2(as_type<half2>((*v_11.tint_member_4)[(((16u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u))])).x;
+              uint const v_185 = ((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + (4u + (((v_40 * 2u) * 4u) + v_41))), 2367u)] & 252645135u);
+              uint const v_186 = (*v_11.tint_member_4)[((((16u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u)) + (1u + v_41))];
+              uint4 const v_187 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_188 = as_type<int4>((uint4(v_185) << v_187));
+              int4 const v_189 = (v_188 >> uint4(24u));
+              uint4 const v_190 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_191 = as_type<int4>((uint4(v_186) << v_190));
+              int const v_192 = v_3(v_189, (v_191 >> uint4(24u)));
+              uint const v_193 = ((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + ((4u + (((v_40 * 2u) * 4u) + v_41)) + 4u)), 2367u)] & 252645135u);
+              uint const v_194 = (*v_11.tint_member_4)[((((16u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u)) + (5u + v_41))];
+              uint4 const v_195 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_196 = as_type<int4>((uint4(v_193) << v_195));
+              int4 const v_197 = (v_196 >> uint4(24u));
+              uint4 const v_198 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_199 = as_type<int4>((uint4(v_194) << v_198));
+              float const v_200 = float(as_type<int>((as_type<uint>(v_192) + as_type<uint>(v_3(v_197, (v_199 >> uint4(24u)))))));
+              float const v_201 = (v_184 * (v_200 * float(select(((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> ((((v_40 * 2u) - 4u) * 8u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> (((((v_40 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> (((v_40 * 2u) * 8u) & 31u)) & 63u), ((v_40 * 2u) < 4u)))));
+              float const v_202 = float2(as_type<half2>((*v_11.tint_member_4)[(((16u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u))])).x;
+              uint const v_203 = (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + (4u + (((v_40 * 2u) * 4u) + v_41))), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_204 = (*v_11.tint_member_4)[((((16u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u)) + (1u + v_41))];
+              uint4 const v_205 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_206 = as_type<int4>((uint4(v_203) << v_205));
+              int4 const v_207 = (v_206 >> uint4(24u));
+              uint4 const v_208 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_209 = as_type<int4>((uint4(v_204) << v_208));
+              int const v_210 = v_3(v_207, (v_209 >> uint4(24u)));
+              uint const v_211 = (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + ((4u + (((v_40 * 2u) * 4u) + v_41)) + 4u)), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_212 = (*v_11.tint_member_4)[((((16u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u)) + (5u + v_41))];
+              uint4 const v_213 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_214 = as_type<int4>((uint4(v_211) << v_213));
+              int4 const v_215 = (v_214 >> uint4(24u));
+              uint4 const v_216 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_217 = as_type<int4>((uint4(v_212) << v_216));
+              float const v_218 = float(as_type<int>((as_type<uint>(v_210) + as_type<uint>(v_3(v_215, (v_217 >> uint4(24u)))))));
+              float const v_219 = (v_183 * (v_201 + (v_202 * (v_218 * float(select(((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> (((((v_40 * 2u) + 1u) - 4u) * 8u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> ((((((v_40 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> ((((v_40 * 2u) + 1u) * 8u) & 31u)) & 63u), (((v_40 * 2u) + 1u) < 4u)))))));
+              float const v_220 = float2(as_type<half2>((*v_11.tint_member_3)[min(((0u + (v_8.x & 31u)) * 37u), 2367u)])).y;
+              float const v_221 = float2(as_type<half2>((*v_11.tint_member_4)[(((16u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u))])).x;
+              uint const v_222 = (*v_11.tint_member_4)[((((16u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u)) + (1u + v_41))];
+              uint4 const v_223 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_224 = as_type<int4>((uint4(16843009u) << v_223));
+              int4 const v_225 = (v_224 >> uint4(24u));
+              uint4 const v_226 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_227 = as_type<int4>((uint4(v_222) << v_226));
+              int const v_228 = v_3(v_225, (v_227 >> uint4(24u)));
+              uint const v_229 = (*v_11.tint_member_4)[((((16u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u)) + (5u + v_41))];
+              uint4 const v_230 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_231 = as_type<int4>((uint4(16843009u) << v_230));
+              int4 const v_232 = (v_231 >> uint4(24u));
+              uint4 const v_233 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_234 = as_type<int4>((uint4(v_229) << v_233));
+              float const v_235 = float(as_type<int>((as_type<uint>(v_228) + as_type<uint>(v_3(v_232, (v_234 >> uint4(24u)))))));
+              float const v_236 = (v_221 * (v_235 * float(select(((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> (((((v_40 * 2u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> (((((v_40 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> (((v_40 * 2u) * 8u) & 31u)) & 63u), ((v_40 * 2u) < 4u)))));
+              float const v_237 = float2(as_type<half2>((*v_11.tint_member_4)[(((16u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u))])).x;
+              uint const v_238 = (*v_11.tint_member_4)[((((16u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u)) + (1u + v_41))];
+              uint4 const v_239 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_240 = as_type<int4>((uint4(16843009u) << v_239));
+              int4 const v_241 = (v_240 >> uint4(24u));
+              uint4 const v_242 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_243 = as_type<int4>((uint4(v_238) << v_242));
+              int const v_244 = v_3(v_241, (v_243 >> uint4(24u)));
+              uint const v_245 = (*v_11.tint_member_4)[((((16u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u)) + (5u + v_41))];
+              uint4 const v_246 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_247 = as_type<int4>((uint4(16843009u) << v_246));
+              int4 const v_248 = (v_247 >> uint4(24u));
+              uint4 const v_249 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_250 = as_type<int4>((uint4(v_245) << v_249));
+              float const v_251 = float(as_type<int>((as_type<uint>(v_244) + as_type<uint>(v_3(v_248, (v_250 >> uint4(24u)))))));
+              v_21 = (v_182 + (v_219 - (v_220 * (v_236 + (v_237 * (v_251 * float(select(((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> ((((((v_40 * 2u) + 1u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> ((((((v_40 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> ((((v_40 * 2u) + 1u) * 8u) & 31u)) & 63u), (((v_40 * 2u) + 1u) < 4u)))))))));
+              float const v_252 = v_23;
+              float const v_253 = float2(as_type<half2>((*v_11.tint_member_3)[min(((0u + (v_8.x & 31u)) * 37u), 2367u)])).x;
+              float const v_254 = float2(as_type<half2>((*v_11.tint_member_4)[(((24u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u))])).x;
+              uint const v_255 = ((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + (4u + (((v_40 * 2u) * 4u) + v_41))), 2367u)] & 252645135u);
+              uint const v_256 = (*v_11.tint_member_4)[((((24u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u)) + (1u + v_41))];
+              uint4 const v_257 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_258 = as_type<int4>((uint4(v_255) << v_257));
+              int4 const v_259 = (v_258 >> uint4(24u));
+              uint4 const v_260 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_261 = as_type<int4>((uint4(v_256) << v_260));
+              int const v_262 = v_3(v_259, (v_261 >> uint4(24u)));
+              uint const v_263 = ((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + ((4u + (((v_40 * 2u) * 4u) + v_41)) + 4u)), 2367u)] & 252645135u);
+              uint const v_264 = (*v_11.tint_member_4)[((((24u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u)) + (5u + v_41))];
+              uint4 const v_265 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_266 = as_type<int4>((uint4(v_263) << v_265));
+              int4 const v_267 = (v_266 >> uint4(24u));
+              uint4 const v_268 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_269 = as_type<int4>((uint4(v_264) << v_268));
+              float const v_270 = float(as_type<int>((as_type<uint>(v_262) + as_type<uint>(v_3(v_267, (v_269 >> uint4(24u)))))));
+              float const v_271 = (v_254 * (v_270 * float(select(((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> ((((v_40 * 2u) - 4u) * 8u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> (((((v_40 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> (((v_40 * 2u) * 8u) & 31u)) & 63u), ((v_40 * 2u) < 4u)))));
+              float const v_272 = float2(as_type<half2>((*v_11.tint_member_4)[(((24u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u))])).x;
+              uint const v_273 = (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + (4u + (((v_40 * 2u) * 4u) + v_41))), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_274 = (*v_11.tint_member_4)[((((24u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u)) + (1u + v_41))];
+              uint4 const v_275 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_276 = as_type<int4>((uint4(v_273) << v_275));
+              int4 const v_277 = (v_276 >> uint4(24u));
+              uint4 const v_278 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_279 = as_type<int4>((uint4(v_274) << v_278));
+              int const v_280 = v_3(v_277, (v_279 >> uint4(24u)));
+              uint const v_281 = (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + ((4u + (((v_40 * 2u) * 4u) + v_41)) + 4u)), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_282 = (*v_11.tint_member_4)[((((24u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u)) + (5u + v_41))];
+              uint4 const v_283 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_284 = as_type<int4>((uint4(v_281) << v_283));
+              int4 const v_285 = (v_284 >> uint4(24u));
+              uint4 const v_286 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_287 = as_type<int4>((uint4(v_282) << v_286));
+              float const v_288 = float(as_type<int>((as_type<uint>(v_280) + as_type<uint>(v_3(v_285, (v_287 >> uint4(24u)))))));
+              float const v_289 = (v_253 * (v_271 + (v_272 * (v_288 * float(select(((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> (((((v_40 * 2u) + 1u) - 4u) * 8u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> ((((((v_40 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> ((((v_40 * 2u) + 1u) * 8u) & 31u)) & 63u), (((v_40 * 2u) + 1u) < 4u)))))));
+              float const v_290 = float2(as_type<half2>((*v_11.tint_member_3)[min(((0u + (v_8.x & 31u)) * 37u), 2367u)])).y;
+              float const v_291 = float2(as_type<half2>((*v_11.tint_member_4)[(((24u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u))])).x;
+              uint const v_292 = (*v_11.tint_member_4)[((((24u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u)) + (1u + v_41))];
+              uint4 const v_293 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_294 = as_type<int4>((uint4(16843009u) << v_293));
+              int4 const v_295 = (v_294 >> uint4(24u));
+              uint4 const v_296 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_297 = as_type<int4>((uint4(v_292) << v_296));
+              int const v_298 = v_3(v_295, (v_297 >> uint4(24u)));
+              uint const v_299 = (*v_11.tint_member_4)[((((24u + (v_8.x >> (5u & 31u))) * 73u) + ((v_40 * 2u) * 9u)) + (5u + v_41))];
+              uint4 const v_300 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_301 = as_type<int4>((uint4(16843009u) << v_300));
+              int4 const v_302 = (v_301 >> uint4(24u));
+              uint4 const v_303 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_304 = as_type<int4>((uint4(v_299) << v_303));
+              float const v_305 = float(as_type<int>((as_type<uint>(v_298) + as_type<uint>(v_3(v_302, (v_304 >> uint4(24u)))))));
+              float const v_306 = (v_291 * (v_305 * float(select(((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> (((((v_40 * 2u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> (((((v_40 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> (((v_40 * 2u) * 8u) & 31u)) & 63u), ((v_40 * 2u) < 4u)))));
+              float const v_307 = float2(as_type<half2>((*v_11.tint_member_4)[(((24u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u))])).x;
+              uint const v_308 = (*v_11.tint_member_4)[((((24u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u)) + (1u + v_41))];
+              uint4 const v_309 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_310 = as_type<int4>((uint4(16843009u) << v_309));
+              int4 const v_311 = (v_310 >> uint4(24u));
+              uint4 const v_312 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_313 = as_type<int4>((uint4(v_308) << v_312));
+              int const v_314 = v_3(v_311, (v_313 >> uint4(24u)));
+              uint const v_315 = (*v_11.tint_member_4)[((((24u + (v_8.x >> (5u & 31u))) * 73u) + (((v_40 * 2u) + 1u) * 9u)) + (5u + v_41))];
+              uint4 const v_316 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_317 = as_type<int4>((uint4(16843009u) << v_316));
+              int4 const v_318 = (v_317 >> uint4(24u));
+              uint4 const v_319 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_320 = as_type<int4>((uint4(v_315) << v_319));
+              float const v_321 = float(as_type<int>((as_type<uint>(v_314) + as_type<uint>(v_3(v_318, (v_320 >> uint4(24u)))))));
+              v_23 = (v_252 + (v_289 - (v_290 * (v_306 + (v_307 * (v_321 * float(select(((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> ((((((v_40 * 2u) + 1u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> ((((((v_40 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((0u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> ((((v_40 * 2u) + 1u) * 8u) & 31u)) & 63u), (((v_40 * 2u) + 1u) < 4u)))))))));
+              {
+                v_41 = (v_41 + 1u);
+              }
+              continue;
+            }
+          }
+          {
+            v_40 = (v_40 + 1u);
+          }
+          continue;
+        }
+      }
+      {
+        uint v_322 = 0u;
+        while(true) {
+          if ((v_322 < 4u)) {
+          } else {
+            break;
+          }
+          {
+            uint v_323 = 0u;
+            while(true) {
+              if ((v_323 < 4u)) {
+              } else {
+                break;
+              }
+              float const v_324 = v_18;
+              float const v_325 = float2(as_type<half2>((*v_11.tint_member_3)[min(((32u + (v_8.x & 31u)) * 37u), 2367u)])).x;
+              float const v_326 = float2(as_type<half2>((*v_11.tint_member_4)[(((0u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u))])).x;
+              uint const v_327 = ((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + (4u + (((v_322 * 2u) * 4u) + v_323))), 2367u)] & 252645135u);
+              uint const v_328 = (*v_11.tint_member_4)[((((0u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u)) + (1u + v_323))];
+              uint4 const v_329 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_330 = as_type<int4>((uint4(v_327) << v_329));
+              int4 const v_331 = (v_330 >> uint4(24u));
+              uint4 const v_332 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_333 = as_type<int4>((uint4(v_328) << v_332));
+              int const v_334 = v_3(v_331, (v_333 >> uint4(24u)));
+              uint const v_335 = ((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + ((4u + (((v_322 * 2u) * 4u) + v_323)) + 4u)), 2367u)] & 252645135u);
+              uint const v_336 = (*v_11.tint_member_4)[((((0u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u)) + (5u + v_323))];
+              uint4 const v_337 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_338 = as_type<int4>((uint4(v_335) << v_337));
+              int4 const v_339 = (v_338 >> uint4(24u));
+              uint4 const v_340 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_341 = as_type<int4>((uint4(v_336) << v_340));
+              float const v_342 = float(as_type<int>((as_type<uint>(v_334) + as_type<uint>(v_3(v_339, (v_341 >> uint4(24u)))))));
+              float const v_343 = (v_326 * (v_342 * float(select(((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> ((((v_322 * 2u) - 4u) * 8u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> (((((v_322 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> (((v_322 * 2u) * 8u) & 31u)) & 63u), ((v_322 * 2u) < 4u)))));
+              float const v_344 = float2(as_type<half2>((*v_11.tint_member_4)[(((0u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u))])).x;
+              uint const v_345 = (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + (4u + (((v_322 * 2u) * 4u) + v_323))), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_346 = (*v_11.tint_member_4)[((((0u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u)) + (1u + v_323))];
+              uint4 const v_347 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_348 = as_type<int4>((uint4(v_345) << v_347));
+              int4 const v_349 = (v_348 >> uint4(24u));
+              uint4 const v_350 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_351 = as_type<int4>((uint4(v_346) << v_350));
+              int const v_352 = v_3(v_349, (v_351 >> uint4(24u)));
+              uint const v_353 = (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + ((4u + (((v_322 * 2u) * 4u) + v_323)) + 4u)), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_354 = (*v_11.tint_member_4)[((((0u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u)) + (5u + v_323))];
+              uint4 const v_355 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_356 = as_type<int4>((uint4(v_353) << v_355));
+              int4 const v_357 = (v_356 >> uint4(24u));
+              uint4 const v_358 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_359 = as_type<int4>((uint4(v_354) << v_358));
+              float const v_360 = float(as_type<int>((as_type<uint>(v_352) + as_type<uint>(v_3(v_357, (v_359 >> uint4(24u)))))));
+              float const v_361 = (v_325 * (v_343 + (v_344 * (v_360 * float(select(((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> (((((v_322 * 2u) + 1u) - 4u) * 8u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> ((((((v_322 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> ((((v_322 * 2u) + 1u) * 8u) & 31u)) & 63u), (((v_322 * 2u) + 1u) < 4u)))))));
+              float const v_362 = float2(as_type<half2>((*v_11.tint_member_3)[min(((32u + (v_8.x & 31u)) * 37u), 2367u)])).y;
+              float const v_363 = float2(as_type<half2>((*v_11.tint_member_4)[(((0u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u))])).x;
+              uint const v_364 = (*v_11.tint_member_4)[((((0u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u)) + (1u + v_323))];
+              uint4 const v_365 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_366 = as_type<int4>((uint4(16843009u) << v_365));
+              int4 const v_367 = (v_366 >> uint4(24u));
+              uint4 const v_368 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_369 = as_type<int4>((uint4(v_364) << v_368));
+              int const v_370 = v_3(v_367, (v_369 >> uint4(24u)));
+              uint const v_371 = (*v_11.tint_member_4)[((((0u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u)) + (5u + v_323))];
+              uint4 const v_372 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_373 = as_type<int4>((uint4(16843009u) << v_372));
+              int4 const v_374 = (v_373 >> uint4(24u));
+              uint4 const v_375 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_376 = as_type<int4>((uint4(v_371) << v_375));
+              float const v_377 = float(as_type<int>((as_type<uint>(v_370) + as_type<uint>(v_3(v_374, (v_376 >> uint4(24u)))))));
+              float const v_378 = (v_363 * (v_377 * float(select(((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> (((((v_322 * 2u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> (((((v_322 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> (((v_322 * 2u) * 8u) & 31u)) & 63u), ((v_322 * 2u) < 4u)))));
+              float const v_379 = float2(as_type<half2>((*v_11.tint_member_4)[(((0u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u))])).x;
+              uint const v_380 = (*v_11.tint_member_4)[((((0u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u)) + (1u + v_323))];
+              uint4 const v_381 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_382 = as_type<int4>((uint4(16843009u) << v_381));
+              int4 const v_383 = (v_382 >> uint4(24u));
+              uint4 const v_384 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_385 = as_type<int4>((uint4(v_380) << v_384));
+              int const v_386 = v_3(v_383, (v_385 >> uint4(24u)));
+              uint const v_387 = (*v_11.tint_member_4)[((((0u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u)) + (5u + v_323))];
+              uint4 const v_388 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_389 = as_type<int4>((uint4(16843009u) << v_388));
+              int4 const v_390 = (v_389 >> uint4(24u));
+              uint4 const v_391 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_392 = as_type<int4>((uint4(v_387) << v_391));
+              float const v_393 = float(as_type<int>((as_type<uint>(v_386) + as_type<uint>(v_3(v_390, (v_392 >> uint4(24u)))))));
+              v_18 = (v_324 + (v_361 - (v_362 * (v_378 + (v_379 * (v_393 * float(select(((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> ((((((v_322 * 2u) + 1u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> ((((((v_322 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> ((((v_322 * 2u) + 1u) * 8u) & 31u)) & 63u), (((v_322 * 2u) + 1u) < 4u)))))))));
+              float const v_394 = v_20;
+              float const v_395 = float2(as_type<half2>((*v_11.tint_member_3)[min(((32u + (v_8.x & 31u)) * 37u), 2367u)])).x;
+              float const v_396 = float2(as_type<half2>((*v_11.tint_member_4)[(((8u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u))])).x;
+              uint const v_397 = ((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + (4u + (((v_322 * 2u) * 4u) + v_323))), 2367u)] & 252645135u);
+              uint const v_398 = (*v_11.tint_member_4)[((((8u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u)) + (1u + v_323))];
+              uint4 const v_399 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_400 = as_type<int4>((uint4(v_397) << v_399));
+              int4 const v_401 = (v_400 >> uint4(24u));
+              uint4 const v_402 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_403 = as_type<int4>((uint4(v_398) << v_402));
+              int const v_404 = v_3(v_401, (v_403 >> uint4(24u)));
+              uint const v_405 = ((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + ((4u + (((v_322 * 2u) * 4u) + v_323)) + 4u)), 2367u)] & 252645135u);
+              uint const v_406 = (*v_11.tint_member_4)[((((8u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u)) + (5u + v_323))];
+              uint4 const v_407 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_408 = as_type<int4>((uint4(v_405) << v_407));
+              int4 const v_409 = (v_408 >> uint4(24u));
+              uint4 const v_410 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_411 = as_type<int4>((uint4(v_406) << v_410));
+              float const v_412 = float(as_type<int>((as_type<uint>(v_404) + as_type<uint>(v_3(v_409, (v_411 >> uint4(24u)))))));
+              float const v_413 = (v_396 * (v_412 * float(select(((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> ((((v_322 * 2u) - 4u) * 8u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> (((((v_322 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> (((v_322 * 2u) * 8u) & 31u)) & 63u), ((v_322 * 2u) < 4u)))));
+              float const v_414 = float2(as_type<half2>((*v_11.tint_member_4)[(((8u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u))])).x;
+              uint const v_415 = (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + (4u + (((v_322 * 2u) * 4u) + v_323))), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_416 = (*v_11.tint_member_4)[((((8u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u)) + (1u + v_323))];
+              uint4 const v_417 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_418 = as_type<int4>((uint4(v_415) << v_417));
+              int4 const v_419 = (v_418 >> uint4(24u));
+              uint4 const v_420 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_421 = as_type<int4>((uint4(v_416) << v_420));
+              int const v_422 = v_3(v_419, (v_421 >> uint4(24u)));
+              uint const v_423 = (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + ((4u + (((v_322 * 2u) * 4u) + v_323)) + 4u)), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_424 = (*v_11.tint_member_4)[((((8u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u)) + (5u + v_323))];
+              uint4 const v_425 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_426 = as_type<int4>((uint4(v_423) << v_425));
+              int4 const v_427 = (v_426 >> uint4(24u));
+              uint4 const v_428 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_429 = as_type<int4>((uint4(v_424) << v_428));
+              float const v_430 = float(as_type<int>((as_type<uint>(v_422) + as_type<uint>(v_3(v_427, (v_429 >> uint4(24u)))))));
+              float const v_431 = (v_395 * (v_413 + (v_414 * (v_430 * float(select(((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> (((((v_322 * 2u) + 1u) - 4u) * 8u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> ((((((v_322 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> ((((v_322 * 2u) + 1u) * 8u) & 31u)) & 63u), (((v_322 * 2u) + 1u) < 4u)))))));
+              float const v_432 = float2(as_type<half2>((*v_11.tint_member_3)[min(((32u + (v_8.x & 31u)) * 37u), 2367u)])).y;
+              float const v_433 = float2(as_type<half2>((*v_11.tint_member_4)[(((8u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u))])).x;
+              uint const v_434 = (*v_11.tint_member_4)[((((8u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u)) + (1u + v_323))];
+              uint4 const v_435 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_436 = as_type<int4>((uint4(16843009u) << v_435));
+              int4 const v_437 = (v_436 >> uint4(24u));
+              uint4 const v_438 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_439 = as_type<int4>((uint4(v_434) << v_438));
+              int const v_440 = v_3(v_437, (v_439 >> uint4(24u)));
+              uint const v_441 = (*v_11.tint_member_4)[((((8u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u)) + (5u + v_323))];
+              uint4 const v_442 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_443 = as_type<int4>((uint4(16843009u) << v_442));
+              int4 const v_444 = (v_443 >> uint4(24u));
+              uint4 const v_445 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_446 = as_type<int4>((uint4(v_441) << v_445));
+              float const v_447 = float(as_type<int>((as_type<uint>(v_440) + as_type<uint>(v_3(v_444, (v_446 >> uint4(24u)))))));
+              float const v_448 = (v_433 * (v_447 * float(select(((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> (((((v_322 * 2u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> (((((v_322 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> (((v_322 * 2u) * 8u) & 31u)) & 63u), ((v_322 * 2u) < 4u)))));
+              float const v_449 = float2(as_type<half2>((*v_11.tint_member_4)[(((8u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u))])).x;
+              uint const v_450 = (*v_11.tint_member_4)[((((8u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u)) + (1u + v_323))];
+              uint4 const v_451 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_452 = as_type<int4>((uint4(16843009u) << v_451));
+              int4 const v_453 = (v_452 >> uint4(24u));
+              uint4 const v_454 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_455 = as_type<int4>((uint4(v_450) << v_454));
+              int const v_456 = v_3(v_453, (v_455 >> uint4(24u)));
+              uint const v_457 = (*v_11.tint_member_4)[((((8u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u)) + (5u + v_323))];
+              uint4 const v_458 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_459 = as_type<int4>((uint4(16843009u) << v_458));
+              int4 const v_460 = (v_459 >> uint4(24u));
+              uint4 const v_461 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_462 = as_type<int4>((uint4(v_457) << v_461));
+              float const v_463 = float(as_type<int>((as_type<uint>(v_456) + as_type<uint>(v_3(v_460, (v_462 >> uint4(24u)))))));
+              v_20 = (v_394 + (v_431 - (v_432 * (v_448 + (v_449 * (v_463 * float(select(((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> ((((((v_322 * 2u) + 1u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> ((((((v_322 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> ((((v_322 * 2u) + 1u) * 8u) & 31u)) & 63u), (((v_322 * 2u) + 1u) < 4u)))))))));
+              float const v_464 = v_22;
+              float const v_465 = float2(as_type<half2>((*v_11.tint_member_3)[min(((32u + (v_8.x & 31u)) * 37u), 2367u)])).x;
+              float const v_466 = float2(as_type<half2>((*v_11.tint_member_4)[(((16u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u))])).x;
+              uint const v_467 = ((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + (4u + (((v_322 * 2u) * 4u) + v_323))), 2367u)] & 252645135u);
+              uint const v_468 = (*v_11.tint_member_4)[((((16u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u)) + (1u + v_323))];
+              uint4 const v_469 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_470 = as_type<int4>((uint4(v_467) << v_469));
+              int4 const v_471 = (v_470 >> uint4(24u));
+              uint4 const v_472 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_473 = as_type<int4>((uint4(v_468) << v_472));
+              int const v_474 = v_3(v_471, (v_473 >> uint4(24u)));
+              uint const v_475 = ((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + ((4u + (((v_322 * 2u) * 4u) + v_323)) + 4u)), 2367u)] & 252645135u);
+              uint const v_476 = (*v_11.tint_member_4)[((((16u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u)) + (5u + v_323))];
+              uint4 const v_477 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_478 = as_type<int4>((uint4(v_475) << v_477));
+              int4 const v_479 = (v_478 >> uint4(24u));
+              uint4 const v_480 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_481 = as_type<int4>((uint4(v_476) << v_480));
+              float const v_482 = float(as_type<int>((as_type<uint>(v_474) + as_type<uint>(v_3(v_479, (v_481 >> uint4(24u)))))));
+              float const v_483 = (v_466 * (v_482 * float(select(((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> ((((v_322 * 2u) - 4u) * 8u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> (((((v_322 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> (((v_322 * 2u) * 8u) & 31u)) & 63u), ((v_322 * 2u) < 4u)))));
+              float const v_484 = float2(as_type<half2>((*v_11.tint_member_4)[(((16u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u))])).x;
+              uint const v_485 = (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + (4u + (((v_322 * 2u) * 4u) + v_323))), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_486 = (*v_11.tint_member_4)[((((16u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u)) + (1u + v_323))];
+              uint4 const v_487 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_488 = as_type<int4>((uint4(v_485) << v_487));
+              int4 const v_489 = (v_488 >> uint4(24u));
+              uint4 const v_490 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_491 = as_type<int4>((uint4(v_486) << v_490));
+              int const v_492 = v_3(v_489, (v_491 >> uint4(24u)));
+              uint const v_493 = (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + ((4u + (((v_322 * 2u) * 4u) + v_323)) + 4u)), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_494 = (*v_11.tint_member_4)[((((16u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u)) + (5u + v_323))];
+              uint4 const v_495 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_496 = as_type<int4>((uint4(v_493) << v_495));
+              int4 const v_497 = (v_496 >> uint4(24u));
+              uint4 const v_498 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_499 = as_type<int4>((uint4(v_494) << v_498));
+              float const v_500 = float(as_type<int>((as_type<uint>(v_492) + as_type<uint>(v_3(v_497, (v_499 >> uint4(24u)))))));
+              float const v_501 = (v_465 * (v_483 + (v_484 * (v_500 * float(select(((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> (((((v_322 * 2u) + 1u) - 4u) * 8u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> ((((((v_322 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> ((((v_322 * 2u) + 1u) * 8u) & 31u)) & 63u), (((v_322 * 2u) + 1u) < 4u)))))));
+              float const v_502 = float2(as_type<half2>((*v_11.tint_member_3)[min(((32u + (v_8.x & 31u)) * 37u), 2367u)])).y;
+              float const v_503 = float2(as_type<half2>((*v_11.tint_member_4)[(((16u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u))])).x;
+              uint const v_504 = (*v_11.tint_member_4)[((((16u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u)) + (1u + v_323))];
+              uint4 const v_505 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_506 = as_type<int4>((uint4(16843009u) << v_505));
+              int4 const v_507 = (v_506 >> uint4(24u));
+              uint4 const v_508 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_509 = as_type<int4>((uint4(v_504) << v_508));
+              int const v_510 = v_3(v_507, (v_509 >> uint4(24u)));
+              uint const v_511 = (*v_11.tint_member_4)[((((16u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u)) + (5u + v_323))];
+              uint4 const v_512 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_513 = as_type<int4>((uint4(16843009u) << v_512));
+              int4 const v_514 = (v_513 >> uint4(24u));
+              uint4 const v_515 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_516 = as_type<int4>((uint4(v_511) << v_515));
+              float const v_517 = float(as_type<int>((as_type<uint>(v_510) + as_type<uint>(v_3(v_514, (v_516 >> uint4(24u)))))));
+              float const v_518 = (v_503 * (v_517 * float(select(((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> (((((v_322 * 2u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> (((((v_322 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> (((v_322 * 2u) * 8u) & 31u)) & 63u), ((v_322 * 2u) < 4u)))));
+              float const v_519 = float2(as_type<half2>((*v_11.tint_member_4)[(((16u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u))])).x;
+              uint const v_520 = (*v_11.tint_member_4)[((((16u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u)) + (1u + v_323))];
+              uint4 const v_521 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_522 = as_type<int4>((uint4(16843009u) << v_521));
+              int4 const v_523 = (v_522 >> uint4(24u));
+              uint4 const v_524 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_525 = as_type<int4>((uint4(v_520) << v_524));
+              int const v_526 = v_3(v_523, (v_525 >> uint4(24u)));
+              uint const v_527 = (*v_11.tint_member_4)[((((16u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u)) + (5u + v_323))];
+              uint4 const v_528 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_529 = as_type<int4>((uint4(16843009u) << v_528));
+              int4 const v_530 = (v_529 >> uint4(24u));
+              uint4 const v_531 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_532 = as_type<int4>((uint4(v_527) << v_531));
+              float const v_533 = float(as_type<int>((as_type<uint>(v_526) + as_type<uint>(v_3(v_530, (v_532 >> uint4(24u)))))));
+              v_22 = (v_464 + (v_501 - (v_502 * (v_518 + (v_519 * (v_533 * float(select(((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> ((((((v_322 * 2u) + 1u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> ((((((v_322 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> ((((v_322 * 2u) + 1u) * 8u) & 31u)) & 63u), (((v_322 * 2u) + 1u) < 4u)))))))));
+              float const v_534 = v_24;
+              float const v_535 = float2(as_type<half2>((*v_11.tint_member_3)[min(((32u + (v_8.x & 31u)) * 37u), 2367u)])).x;
+              float const v_536 = float2(as_type<half2>((*v_11.tint_member_4)[(((24u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u))])).x;
+              uint const v_537 = ((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + (4u + (((v_322 * 2u) * 4u) + v_323))), 2367u)] & 252645135u);
+              uint const v_538 = (*v_11.tint_member_4)[((((24u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u)) + (1u + v_323))];
+              uint4 const v_539 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_540 = as_type<int4>((uint4(v_537) << v_539));
+              int4 const v_541 = (v_540 >> uint4(24u));
+              uint4 const v_542 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_543 = as_type<int4>((uint4(v_538) << v_542));
+              int const v_544 = v_3(v_541, (v_543 >> uint4(24u)));
+              uint const v_545 = ((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + ((4u + (((v_322 * 2u) * 4u) + v_323)) + 4u)), 2367u)] & 252645135u);
+              uint const v_546 = (*v_11.tint_member_4)[((((24u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u)) + (5u + v_323))];
+              uint4 const v_547 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_548 = as_type<int4>((uint4(v_545) << v_547));
+              int4 const v_549 = (v_548 >> uint4(24u));
+              uint4 const v_550 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_551 = as_type<int4>((uint4(v_546) << v_550));
+              float const v_552 = float(as_type<int>((as_type<uint>(v_544) + as_type<uint>(v_3(v_549, (v_551 >> uint4(24u)))))));
+              float const v_553 = (v_536 * (v_552 * float(select(((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> ((((v_322 * 2u) - 4u) * 8u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> (((((v_322 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> (((v_322 * 2u) * 8u) & 31u)) & 63u), ((v_322 * 2u) < 4u)))));
+              float const v_554 = float2(as_type<half2>((*v_11.tint_member_4)[(((24u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u))])).x;
+              uint const v_555 = (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + (4u + (((v_322 * 2u) * 4u) + v_323))), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_556 = (*v_11.tint_member_4)[((((24u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u)) + (1u + v_323))];
+              uint4 const v_557 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_558 = as_type<int4>((uint4(v_555) << v_557));
+              int4 const v_559 = (v_558 >> uint4(24u));
+              uint4 const v_560 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_561 = as_type<int4>((uint4(v_556) << v_560));
+              int const v_562 = v_3(v_559, (v_561 >> uint4(24u)));
+              uint const v_563 = (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + ((4u + (((v_322 * 2u) * 4u) + v_323)) + 4u)), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_564 = (*v_11.tint_member_4)[((((24u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u)) + (5u + v_323))];
+              uint4 const v_565 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_566 = as_type<int4>((uint4(v_563) << v_565));
+              int4 const v_567 = (v_566 >> uint4(24u));
+              uint4 const v_568 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_569 = as_type<int4>((uint4(v_564) << v_568));
+              float const v_570 = float(as_type<int>((as_type<uint>(v_562) + as_type<uint>(v_3(v_567, (v_569 >> uint4(24u)))))));
+              float const v_571 = (v_535 * (v_553 + (v_554 * (v_570 * float(select(((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> (((((v_322 * 2u) + 1u) - 4u) * 8u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> ((((((v_322 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 1u), 2367u)] >> ((((v_322 * 2u) + 1u) * 8u) & 31u)) & 63u), (((v_322 * 2u) + 1u) < 4u)))))));
+              float const v_572 = float2(as_type<half2>((*v_11.tint_member_3)[min(((32u + (v_8.x & 31u)) * 37u), 2367u)])).y;
+              float const v_573 = float2(as_type<half2>((*v_11.tint_member_4)[(((24u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u))])).x;
+              uint const v_574 = (*v_11.tint_member_4)[((((24u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u)) + (1u + v_323))];
+              uint4 const v_575 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_576 = as_type<int4>((uint4(16843009u) << v_575));
+              int4 const v_577 = (v_576 >> uint4(24u));
+              uint4 const v_578 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_579 = as_type<int4>((uint4(v_574) << v_578));
+              int const v_580 = v_3(v_577, (v_579 >> uint4(24u)));
+              uint const v_581 = (*v_11.tint_member_4)[((((24u + (v_8.x >> (5u & 31u))) * 73u) + ((v_322 * 2u) * 9u)) + (5u + v_323))];
+              uint4 const v_582 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_583 = as_type<int4>((uint4(16843009u) << v_582));
+              int4 const v_584 = (v_583 >> uint4(24u));
+              uint4 const v_585 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_586 = as_type<int4>((uint4(v_581) << v_585));
+              float const v_587 = float(as_type<int>((as_type<uint>(v_580) + as_type<uint>(v_3(v_584, (v_586 >> uint4(24u)))))));
+              float const v_588 = (v_573 * (v_587 * float(select(((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> (((((v_322 * 2u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> (((((v_322 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> (((v_322 * 2u) * 8u) & 31u)) & 63u), ((v_322 * 2u) < 4u)))));
+              float const v_589 = float2(as_type<half2>((*v_11.tint_member_4)[(((24u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u))])).x;
+              uint const v_590 = (*v_11.tint_member_4)[((((24u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u)) + (1u + v_323))];
+              uint4 const v_591 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_592 = as_type<int4>((uint4(16843009u) << v_591));
+              int4 const v_593 = (v_592 >> uint4(24u));
+              uint4 const v_594 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_595 = as_type<int4>((uint4(v_590) << v_594));
+              int const v_596 = v_3(v_593, (v_595 >> uint4(24u)));
+              uint const v_597 = (*v_11.tint_member_4)[((((24u + (v_8.x >> (5u & 31u))) * 73u) + (((v_322 * 2u) + 1u) * 9u)) + (5u + v_323))];
+              uint4 const v_598 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_599 = as_type<int4>((uint4(16843009u) << v_598));
+              int4 const v_600 = (v_599 >> uint4(24u));
+              uint4 const v_601 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_602 = as_type<int4>((uint4(v_597) << v_601));
+              float const v_603 = float(as_type<int>((as_type<uint>(v_596) + as_type<uint>(v_3(v_600, (v_602 >> uint4(24u)))))));
+              v_24 = (v_534 + (v_571 - (v_572 * (v_588 + (v_589 * (v_603 * float(select(((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 3u), 2367u)] >> ((((((v_322 * 2u) + 1u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> ((((((v_322 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*v_11.tint_member_3)[min((((32u + (v_8.x & 31u)) * 37u) + 2u), 2367u)] >> ((((v_322 * 2u) + 1u) * 8u) & 31u)) & 63u), (((v_322 * 2u) + 1u) < 4u)))))))));
+              {
+                v_323 = (v_323 + 1u);
+              }
+              continue;
+            }
+          }
+          {
+            v_322 = (v_322 + 1u);
+          }
+          continue;
+        }
+      }
+      threadgroup_barrier(mem_flags::mem_threadgroup);
+      {
+        v_25 = (v_25 + 1u);
+      }
+      continue;
+    }
+  }
+  if ((((v_9.y * 32u) + (0u + (v_8.x >> (5u & 31u)))) < 277u)) {
+    (*v_11.tint_member_2)[min((((0u + ((v_9.y * 32u) + (0u + (v_8.x >> (5u & 31u))))) * 2816u) + ((v_9.x * 64u) + (0u + (v_8.x & 31u)))), 780031u)] = v_17;
+  }
+  if ((((v_9.y * 32u) + (0u + (v_8.x >> (5u & 31u)))) < 277u)) {
+    (*v_11.tint_member_2)[min((((0u + ((v_9.y * 32u) + (0u + (v_8.x >> (5u & 31u))))) * 2816u) + ((v_9.x * 64u) + (32u + (v_8.x & 31u)))), 780031u)] = v_18;
+  }
+  if ((((v_9.y * 32u) + (8u + (v_8.x >> (5u & 31u)))) < 277u)) {
+    (*v_11.tint_member_2)[min((((0u + ((v_9.y * 32u) + (8u + (v_8.x >> (5u & 31u))))) * 2816u) + ((v_9.x * 64u) + (0u + (v_8.x & 31u)))), 780031u)] = v_19;
+  }
+  if ((((v_9.y * 32u) + (8u + (v_8.x >> (5u & 31u)))) < 277u)) {
+    (*v_11.tint_member_2)[min((((0u + ((v_9.y * 32u) + (8u + (v_8.x >> (5u & 31u))))) * 2816u) + ((v_9.x * 64u) + (32u + (v_8.x & 31u)))), 780031u)] = v_20;
+  }
+  if ((((v_9.y * 32u) + (16u + (v_8.x >> (5u & 31u)))) < 277u)) {
+    (*v_11.tint_member_2)[min((((0u + ((v_9.y * 32u) + (16u + (v_8.x >> (5u & 31u))))) * 2816u) + ((v_9.x * 64u) + (0u + (v_8.x & 31u)))), 780031u)] = v_21;
+  }
+  if ((((v_9.y * 32u) + (16u + (v_8.x >> (5u & 31u)))) < 277u)) {
+    (*v_11.tint_member_2)[min((((0u + ((v_9.y * 32u) + (16u + (v_8.x >> (5u & 31u))))) * 2816u) + ((v_9.x * 64u) + (32u + (v_8.x & 31u)))), 780031u)] = v_22;
+  }
+  if ((((v_9.y * 32u) + (24u + (v_8.x >> (5u & 31u)))) < 277u)) {
+    (*v_11.tint_member_2)[min((((0u + ((v_9.y * 32u) + (24u + (v_8.x >> (5u & 31u))))) * 2816u) + ((v_9.x * 64u) + (0u + (v_8.x & 31u)))), 780031u)] = v_23;
+  }
+  if ((((v_9.y * 32u) + (24u + (v_8.x >> (5u & 31u)))) < 277u)) {
+    (*v_11.tint_member_2)[min((((0u + ((v_9.y * 32u) + (24u + (v_8.x >> (5u & 31u))))) * 2816u) + ((v_9.x * 64u) + (32u + (v_8.x & 31u)))), 780031u)] = v_24;
+  }
+}
+
+kernel void dawn_entry_point(uint3 v_605 [[thread_position_in_grid]], uint3 v_606 [[thread_position_in_threadgroup]], uint3 v_607 [[threadgroup_position_in_grid]], uint v_608 [[thread_index_in_threadgroup]], const device tint_array<uint, 1622016>* v_609 [[buffer(0)]], const device tint_array<uint, 319104>* v_610 [[buffer(1)]], device tint_array<float, 780032>* v_611 [[buffer(2)]], threadgroup tint_struct_2* v_612 [[threadgroup(0)]]) {
+  tint_struct const v_613 = tint_struct{.tint_member=v_609, .tint_member_1=v_610, .tint_member_2=v_611, .tint_member_3=(&(*v_612).tint_member_7), .tint_member_4=(&(*v_612).tint_member_8)};
+  v_6(v_605, v_606, v_607, v_608, v_613);
+}
+
+===MSLDUMP-END===
+[C++] ComputePipeline created successfully
+[C++] createBindGroup: 3 entries
+[C++]   Entry 0: binding=0, offset=0, size=6488064 (raw_size=0, actual_buffer_size=6488064, usage=0x8c)
+[C++]   Entry 1: binding=1, offset=0, size=1276416 (raw_size=0, actual_buffer_size=1276416, usage=0x8c)
+[C++]   Entry 2: binding=2, offset=0, size=3604480 (raw_size=0, actual_buffer_size=3604480, usage=0x8c)
+[C++] Creating BindGroup...
+[C++] BindGroup created: wrapper=0x16fadf480, WGPUBindGroup=0x9a0975a58
+[C++] Validating buffer handles after BindGroup creation...
+[C++]   Buffer 0 OK: wrapper=0x9a0e30480, WGPUBuffer=0x9a08021c0
+[C++]   Buffer 1 OK: wrapper=0x9a0e33050, WGPUBuffer=0x9a0e78780
+[C++]   Buffer 2 OK: wrapper=0x9a0e329e0, WGPUBuffer=0x9a083d680
+[C++]   Heap wrapper=0x9a1cd0200, WGPUBindGroup=0x9a0975a58
+[C++] createBindGroup: 3 entries
+[C++]   Entry 0: binding=0, offset=0, size=3604480 (raw_size=0, actual_buffer_size=3604480, usage=0x8c)
+[C++]   Entry 1: binding=1, offset=0, size=11264 (raw_size=0, actual_buffer_size=11264, usage=0x8c)
+[C++]   Entry 2: binding=2, offset=0, size=3120128 (raw_size=0, actual_buffer_size=3120128, usage=0x8c)
+[C++] Creating BindGroup...
+[C++] BindGroup created: wrapper=0x16fade460, WGPUBindGroup=0x9a0977d30
+[C++] Validating buffer handles after BindGroup creation...
+[C++]   Buffer 0 OK: wrapper=0x9a0e329e0, WGPUBuffer=0x9a083d680
+[C++]   Buffer 1 OK: wrapper=0x9a0e30420, WGPUBuffer=0x9a0801a40
+[C++]   Buffer 2 OK: wrapper=0x9a0e32a40, WGPUBuffer=0x9a083de00
+[C++]   Heap wrapper=0x9a1cd0210, WGPUBindGroup=0x9a0977d30
+[C++] createShaderModule: compiling WGSL...
+[C++] ======================================
+[C++] Shader source (length=588):
+--- BEGIN SHADER ---
+@group(0) @binding(0)
+var<storage, read> ain: array<f32, 780032>;
+@group(0) @binding(1)
+var<storage, read> bin: array<f32, 780032>;
+@group(0) @binding(2)
+var<storage, read_write> outc: array<f32, 780032>;
+
+@compute
+@workgroup_size(256, 1, 1)
+fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>,
+        @builtin(local_invocation_id) local_invocation_id: vec3<u32>,
+        @builtin(workgroup_id) workgroup_id: vec3<u32>) {
+  if ((global_invocation_id.x < 780032u)) {
+    outc[global_invocation_id.x] = (ain[global_invocation_id.x] + bin[global_invocation_id.x]);
+  }
+}
+
+--- END SHADER ---
+[C++] ======================================
+[RMSNorm] Executing forward pass (277 rows × 2816 dim)...
+[RMSNorm] ✓ Forward pass complete
+===MSLDUMP-BEGIN===

@@ -1,0 +1,74 @@
+
+#ifdef __clang__
+#pragma clang diagnostic ignored "-Wall"
+#endif
+
+#pragma METAL fp math_mode(relaxed)
+#include <metal_stdlib>
+using namespace metal;
+
+template<typename T, size_t N>
+struct tint_array {
+  const constant T& operator[](size_t i) const constant { return elements[i]; }
+  device T& operator[](size_t i) device { return elements[i]; }
+  const device T& operator[](size_t i) const device { return elements[i]; }
+  thread T& operator[](size_t i) thread { return elements[i]; }
+  const thread T& operator[](size_t i) const thread { return elements[i]; }
+  threadgroup T& operator[](size_t i) threadgroup { return elements[i]; }
+  const threadgroup T& operator[](size_t i) const threadgroup { return elements[i]; }
+  T elements[N];
+};
+
+struct tint_immediate_data_struct {
+  tint_array<uint4, 1> tint_storage_buffer_sizes;
+};
+
+struct tint_module_vars_struct {
+  device tint_array<float, 1134592>* data;
+  const constant tint_immediate_data_struct* tint_immediate_data;
+};
+
+void main_inner(uint3 global_invocation_id, uint3 local_invocation_id, uint3 workgroup_id, tint_module_vars_struct tint_module_vars) {
+  if ((global_invocation_id.x < 4432u)) {
+    float v0 = 0.0f;
+    float v1 = 0.0f;
+    {
+      uint i2 = 0u;
+      while(true) {
+        if ((i2 < 256u)) {
+        } else {
+          break;
+        }
+        if ((abs((*tint_module_vars.data)[min(((global_invocation_id.x * 256u) + i2), 1134591u)]) > v0)) {
+          v0 = abs((*tint_module_vars.data)[min(((global_invocation_id.x * 256u) + i2), 1134591u)]);
+          v1 = (*tint_module_vars.data)[min(((global_invocation_id.x * 256u) + i2), 1134591u)];
+        }
+        {
+          i2 = (i2 + 1u);
+        }
+      }
+    }
+    if ((v0 > 0.0f)) {
+      {
+        uint i3 = 0u;
+        while(true) {
+          if ((i3 < 256u)) {
+          } else {
+            break;
+          }
+          (*tint_module_vars.data)[min(((global_invocation_id.x * 256u) + i3), 1134591u)] = (min(127.0f, (sign(((-127.0f / v1) * (*tint_module_vars.data)[min(((global_invocation_id.x * 256u) + i3), 1134591u)])) * floor((abs(((-127.0f / v1) * (*tint_module_vars.data)[min(((global_invocation_id.x * 256u) + i3), 1134591u)])) + 0.5f)))) * (v1 / -127.0f));
+          {
+            i3 = (i3 + 1u);
+          }
+        }
+      }
+    }
+  }
+}
+
+[[max_total_threads_per_threadgroup(256)]]
+kernel void dawn_entry_point_687474703a2f2f3132372e302e302e3120687474703a2f2f3132372e302e302e31(uint3 global_invocation_id [[thread_position_in_grid]], uint3 local_invocation_id [[thread_position_in_threadgroup]], uint3 workgroup_id [[threadgroup_position_in_grid]], device tint_array<float, 1134592>* data [[buffer(0)]]) {
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.data=data};
+  (main_inner(global_invocation_id, local_invocation_id, workgroup_id, tint_module_vars));
+}
+", source: http://127.0.0.1:8877/replay-dg.html (0)

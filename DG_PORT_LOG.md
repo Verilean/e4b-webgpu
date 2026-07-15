@@ -222,3 +222,19 @@ NEXT DECISIVE EXPERIMENT: launch Chrome with
 and TEXT-DIFF against hesper's HESPER_DUMP_MSL for the same WGSL — makes
 the codegen difference directly visible. (Both dumps exist as tooling
 already; no new infrastructure needed.)
+
+## R22 (2026-07-15, in progress): MSL text-diff — materials secured
+
+- hesper MSL: HESPER_DUMP_MSL=1 run → 34MB stderr; block structure
+  `// Dumped WGSL:` … `/* Dumped generated MSL */` …; kernel #15 extracted by
+  WGSL signature (1622016+319104+252645135) → **debug/k15/hesper-k15.msl
+  (74.5KB, full)**.
+- Chrome MSL: `--enable-dawn-features=dump_shaders,disable_symbol_renaming
+  --enable-logging=stderr` works, BUT the dump rides console messages and
+  Chrome TRUNCATES long console lines → only 2.9KB fragment
+  (debug/k15/chrome-k15-TRUNCATED.msl). Console-based dumping cannot yield
+  the full kernel.
+- NEXT: build the tint CLI at a recent (Chrome-era) Dawn revision and
+  offline-compile debug/k15/k15.wgsl; diff against hesper-k15.msl (hesper's
+  own tint CLI at /tmp/tint-build/tint is the PINNED version — rebuild
+  needed at newer rev). The k15 WGSL is checked in for reproducibility.
