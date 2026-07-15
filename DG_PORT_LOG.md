@@ -404,3 +404,25 @@ TRUE Chrome-vs-fast first divergence. Earlier fast-baseline evidence
 (R16-R20: oh 30× off, collapse) still stands — Chrome ≠ fast SOMEWHERE,
 but possibly much later/narrower than the recent strict-contaminated
 measurements suggested.
+
+## R30 (2026-07-16): THE DECISIVE CURVE — decorrelation is native physics; Chrome's defect is in the H tail-chain
+
+Native fast-vs-strict snapshot curve (offline, c-files, NO Chrome):
+#15 5.1e-3 → #16 2.3e-2 → #20 4.8e-1 → #300 6.1 → #600 25 → lm-head region
+(#1130-1137) ~1-2. **Identical shape to Chrome's curve** ⇒ full activation
+decorrelation between numeric variants is INHERENT (q8-flip Lyapunov), and
+NATIVELY HARMLESS: despite it, oh(fast) vs oh(strict) correlate 0.9944 and
+both decode Paris. H is a decorrelation-robust functional of the canvas.
+
+⇒ Chrome's 30× H inflation CANNOT be trajectory noise. The defect is a
+different-in-kind computation in the TAIL CHAIN that produces H:
+final-norm → Q6_K full-vocab lm_head → softcap → logitsCanvas slice-copies
+(8×) → ebSampleFullB (barrier-based workgroup reduction over 262144).
+Also retract R29's "Chrome≈fast" (histogram similarity ≠ byte identity;
+all three variants are pairwise ~2.7% q8-flipped — statistically equidistant).
+
+NEXT (sharp, tooling in place): Chrome-vs-fast tail curve (remove the #20
+early stop) → which tail dispatch first shows a K I N D-different deviation
+(vs the native ~1-2 decorrelation floor); then read that kernel. Candidates:
+softcap (tanh), slice-copy (mod idiom), ebSampleFullB (workgroup reduction,
+log/exp over 262k).
