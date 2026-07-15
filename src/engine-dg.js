@@ -156,7 +156,7 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
   };
 
   // ---- scheduler state (hesper L1330-1356) --------------------------------
-  const rng = new Rng(12346);
+  const rng = new Rng(opts.seed ?? 12345);
   const toks = new Uint32Array(P + C);
   toks.set(promptToks);
   for (let i = 0; i < C; i++) toks[P + i] = rng.tok(vocabSize);   // schedEB canvas randomization
@@ -186,7 +186,7 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
     dyn.set(ebPU, new Uint8Array(new Float32Array([tCur, 0, 0, 0]).buffer));
 
     let enc = device.createCommandEncoder();
-    let lastD = null, s0diverged = 0;
+    let lastD = null, s0diverged = 0, nSinceSubmit = 0;
     const flush = () => { device.queue.submit([enc.finish()]); enc = device.createCommandEncoder(); };
     for (const o of (step === 0 ? stream0 : streamN)) {
       if (o.t === "w" && o.hex) {
@@ -206,8 +206,13 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
         pass.dispatchWorkgroups(o.g[0], o.g[1], o.g[2]);
         pass.end();
         lastD = o;
-      } else if (o.t === "f") flush();
-      else if (o.t === "c" && step === 0 && lastD) {
+      } else if (o.t === "f") {
+        // hesper's flush markers exist for ITS Dawn's barrier-at-scale bug;
+        // WebGPU queue ordering makes them redundant here, and the cksum-mode
+        // trace has one per dispatch (~1456/step → 50s/step). Batch instead.
+        if (++nSinceSubmit > 200) { flush(); nSinceSubmit = 0; }
+      }
+      else if (o.t === "c" && step === 0 && lastD && opts.debug) {
         // per-dispatch golden (hesper snapshots): find the FIRST diverging
         // dispatch of step 0 exactly
         flush();
@@ -236,7 +241,7 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
     const samp = await rd32("osamp", C);
     const hArr = await rdF("oh", C);
     const ktok = await rd32("otok", C * scK);
-    if (step === 0) {
+    if (step === 0 && opts.debug) {
       // step-0 golden: the trace records hesper's actual readbacks as hex —
       // compare ours to split GPU-state issues from CPU-scheduler issues
       for (const o of stream0.filter((o) => o.t === "r" && o.hex)) {

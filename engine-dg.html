@@ -6,5 +6,6 @@
 <script type="module">
 import { runEngine } from "./src/engine-dg.js";
 const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => {});
-try { await runEngine(); } catch (e) { await L("ENGINE EXCEPTION: " + (e.stack || e)); }
+const seed = parseInt(new URLSearchParams(location.search).get("seed") || "12345");
+try { await runEngine("dgtrace", { seed }); } catch (e) { await L("ENGINE EXCEPTION: " + (e.stack || e)); }
 </script>

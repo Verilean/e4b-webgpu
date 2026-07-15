@@ -314,3 +314,26 @@ IRREDUCIBLE; M2a must make the DECODE robust instead:
 lower step-0 confidence (ebBound/anneal tuning on the Chrome side);
 (c) cancellation hardening (Kahan) in the ROUTER to stabilize top-8
 near-ties against any compiler's fusion choices.
+
+## R26 (2026-07-16): seed sweep n=3 — SYSTEMATIC confirmed
+
+Seeds 12345/12346/12349 on Chrome ALL collapse to the empty-answer attractor
+(12347/48 lost to harness timeouts — TWICE undersized (1500s, 1800s) against
+the strict-trace's real ~35 min/run; the cksum-mode stream is ~4500
+events/step and even with 'c' skipped + submit batching runs ~35-40s/step.
+TRAP (repeat): estimate run time from MEASURED per-step wall, not hope).
+Also: a first sweep attempt WEDGED Chrome ~85 min in step-0's per-dispatch
+readback probes → all debug probes now gated behind opts.debug (default off).
+
+Verdict: the Chrome trajectory is systematically degenerate, not unlucky.
+Two forks remain:
+(A) the per-layer Lyapunov amplification (measured: 2.5e-3 @#15 → 2e-2 @#16
+    → 1e-1 @#19 → O(1) by layer 2) makes ANY numeric difference a different
+    trajectory, AND Chrome's difference is BIASED (e.g. magnitude loss)
+    pushing toward low-confidence/eos — explains hesper's kernel-swap
+    tolerance (unbiased swaps) vs Chrome (biased difference).
+(B) a shared engine-dynamics bug all seeds hit (scheduler port subtlety).
+DISCRIMINATOR queued: bias statistics of the #15 deviation — dump Chrome's
+mid-window bytes for #15, compare vs c-snapshot: mean(got−want) vs
+mean|got−want| (bias ratio), and |diff| correlation with |want|
+(FTZ/cancellation signature). All reference data already on disk.
