@@ -337,3 +337,30 @@ DISCRIMINATOR queued: bias statistics of the #15 deviation — dump Chrome's
 mid-window bytes for #15, compare vs c-snapshot: mean(got−want) vs
 mean|got−want| (bias ratio), and |diff| correlation with |want|
 (FTZ/cancellation signature). All reference data already on disk.
+
+## R27 (2026-07-16): the amplifier identified — Q8 quantization boundary flips
+
+Bias probe at #15 (strict trace):
+- output deviation: meanW=2.67, meanAbsDiff=2.85e-3, **biasRatio=0.025 ≈
+  SYMMETRIC** (not a systematic magnitude shift).
+- **input_q8 itself differs at mid rows**: low-bit u32 deltas = ±1 int8
+  QUANTIZATION CODES. Mechanism: ULP-level activation differences land on
+  round-to-nearest boundaries → ±1 codes (~8e-3 relative per element) →
+  **the ×1000 amplifier is the Q8 quantizer, not matmul FMA**; every layer
+  re-quantizes → measured Lyapunov chain (2.5e-3 → 2e-2 → 1e-1 → O(1) by
+  layer 2). This is inherent to int-quantized inference across ANY numeric
+  difference (llama.cpp cross-backend has the same property).
+Also verified: scProb IS all-zeros in hesper renoise (full 8192B checked —
+earlier only 12 head bytes had been inspected; engine port correct);
+ebSampleFullB and reduceTopKB contain NO subgroup ops (width-assumption
+theory dead).
+
+REMAINING PUZZLE (one number): step-0 H DISTRIBUTION — hesper variants
+(fast/strict/dp4a/reg) all keep acc≈120-140 & meanH≈0.63-0.66 while Chrome
+collapses to acc=1 & meanH≈2.1, despite the same decorrelation amplifier
+acting on all of them. QUEUED DISCRIMINATOR: element-wise oh(hesper-fast)
+vs oh(hesper-strict) from the two traces' r-hex — if hesper variants'
+element-wise H values are CLOSE, native decorrelation is somehow bounded
+and Chrome's is anomalous (a real Chrome-side defect remains); if far-but-
+low-mean, distribution shape survives decorrelation natively and Chrome's
+mean inflation is the anomaly to hunt.

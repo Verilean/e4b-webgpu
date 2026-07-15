@@ -173,9 +173,14 @@ export async function runReplay(dir = "dgtrace", ggufUrl = "model-dg.gguf") {
       // XOR of per-buffer FNV32 over each bound buffer's first 4KB
       flushSubmit();
       const got = [];
+      const winOf = (u) => {
+        const full = (bufSizes[String(u)] | 0) || 4096;
+        const off = full > 8192 ? Math.floor(full / 2 / 4096) * 4096 : 0;
+        return [off, Math.min(4096, full - off)];
+      };
       for (const [, u] of lastD.b) {
-        const size = Math.min(4096, (bufSizes[String(u)] | 0) || 4096);
-        got.push(fnv32(await readbackRange(device, bufs.get(String(u)), 0, size)));
+        const [off, len] = winOf(u);
+        got.push(fnv32(await readbackRange(device, bufs.get(String(u)), off, len)));
       }
       // tolerance gate (M1): classify each mismatch by snapshot maxRel —
       // ULP-level drift (compiler FMA differences) is EXPECTED across
@@ -190,8 +195,8 @@ export async function runReplay(dir = "dgtrace", ggufUrl = "model-dg.gguf") {
           if (!r.ok) { worst = Infinity; continue; }
           const want = new Uint8Array(await r.arrayBuffer());
           const [, u] = lastD.b[i];
-          const size = Math.min(4096, (bufSizes[String(u)] | 0) || 4096);
-          const g = await readbackRange(device, bufs.get(String(u)), 0, size);
+          const [off2, size] = winOf(u);
+          const g = await readbackRange(device, bufs.get(String(u)), off2, size);
           const gf = new Float32Array(g.buffer, 0, size >> 2);
           const wf = new Float32Array(new Uint8Array(want).buffer, 0, size >> 2);
           // RMS-normalized max deviation: plain per-element relative error
@@ -220,6 +225,31 @@ export async function runReplay(dir = "dgtrace", ggufUrl = "model-dg.gguf") {
         }
         if (o.n < 60)
           L(`  [curve] #${o.n} relRMS=${worst.toExponential(1)} binds=${JSON.stringify(lastD.b.map(([n2]) => n2))}`);
+        if (o.n === 15) {
+          // bias statistics of the first-diverging matmul: biased (systematic
+          // magnitude shift) vs symmetric (fusion noise)
+          for (const i of bad) {
+            const r2 = await fetch(`${dir}/c${o.n}_${i}.bin`);
+            if (!r2.ok) continue;
+            const want = new Uint8Array(await r2.arrayBuffer());
+            const [, u] = lastD.b[i];
+            const full = (bufSizes[String(u)] | 0) || 4096;
+            const off = full > 8192 ? Math.floor(full / 2 / 4096) * 4096 : 0;
+            const g = await readbackRange(device, bufs.get(String(u)), off, Math.min(4096, full - off));
+            const gf = new Float32Array(g.buffer, 0, g.length >> 2);
+            const wf = new Float32Array(new Uint8Array(want).buffer, 0, want.length >> 2);
+            let sd = 0, sad = 0, n2 = 0, smallD = 0, smallN = 0, bigD = 0, bigN = 0, sw = 0;
+            for (let j = 0; j < wf.length; j++) {
+              if (!Number.isFinite(wf[j]) || !Number.isFinite(gf[j])) continue;
+              const d = gf[j] - wf[j];
+              sd += d; sad += Math.abs(d); sw += Math.abs(wf[j]); n2++;
+              if (Math.abs(wf[j]) < 0.05) { smallD += Math.abs(d); smallN++; }
+              else { bigD += Math.abs(d); bigN++; }
+            }
+            L(`  [bias#15 buf${i}] n=${n2} meanW=${(sw/n2).toExponential(2)} meanDiff=${(sd/n2).toExponential(2)} meanAbsDiff=${(sad/n2).toExponential(2)} biasRatio=${(sd/Math.max(sad,1e-30)).toFixed(3)} |d|@small=${(smallD/Math.max(smallN,1)).toExponential(2)}(n=${smallN}) |d|@big=${(bigD/Math.max(bigN,1)).toExponential(2)}(n=${bigN})`);
+          }
+        }
+        if (o.n > 20) { L("early stop after #20 (bias probe mode)"); break; }
         if (worst > ckWorst) { ckWorst = worst; ckWorstAt = o.n; }
       }
     } else if (o.t === "f") {
