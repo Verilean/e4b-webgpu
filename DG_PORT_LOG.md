@@ -264,3 +264,30 @@ variant) to bisect which construct triggers the divergence (candidates:
 unpack2x16float f16-scale path / denormal-adjacent data at mid rows / the
 y_block staging). Alternatively build Dawn-native at July rev and swap it
 under hesper to get an apples-to-apples runtime MSL diff.
+
+## R24 (2026-07-15): tile-permutation + strict-trace — TWO more eliminations
+
+- **Tile permutation** (wid.y → (y+4)%9, semantics-preserving): #15 relRMS
+  EXACTLY 2.5e-3 unchanged → divergence is DATA-LOCKED (follows the rows'
+  values, not workgroup index/scheduling). Kills scheduling/UB theories for
+  this kernel.
+- **hesper-STRICT trace replayed on Chrome**: #15 still 4.8e-3 → Chrome
+  matches NEITHER hesper-fast NOR hesper-strict. fastMath is fully dead as
+  the explanation (both directions now tested).
+
+Remaining suspects (ranked):
+1. **Tint MSL backend generation path**: Tint is migrating MSL output
+   AST→IR; Chrome's runtime and the CLI may use different generators — the
+   CLI-vs-CLI diff (R23) compared the same default path and would miss it.
+   Probe: tint CLI has a use-ir/backend flag? or diff Dawn runtime code for
+   which path Chrome enables.
+2. Data-shaped numeric path (cancellation/denormal at mid-row values) that
+   both hesper modes treat one way and Chrome's compile treats another.
+   Probe: element-level histogram of the #15 mid-window diff (indices,
+   got/want values — are the bad elements tiny/cancelled?) — snapshot
+   c15_2.bin already on disk; needs one replay-only run with a dump tweak.
+3. Micro-repro bisection of the kernel body (scale-path vs dp4a-path), with
+   hesper-side re-goldens per semantics-changing variant (~8 min each).
+
+Iteration count total: 15 engine/replay runs today on this hunt; 9 trace
+regens; 11 hypotheses eliminated with evidence.
