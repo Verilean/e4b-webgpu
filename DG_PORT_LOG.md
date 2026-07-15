@@ -238,3 +238,29 @@ already; no new infrastructure needed.)
   offline-compile debug/k15/k15.wgsl; diff against hesper-k15.msl (hesper's
   own tint CLI at /tmp/tint-build/tint is the PINNED version — rebuild
   needed at newer rev). The k15 WGSL is checked in for reproducibility.
+
+## R23 (2026-07-15): tint CLI cross-version diff of k15 — NO semantic delta
+
+Built tint CLI at Dawn main (July 2026, /tmp/tint-new) vs hesper's pinned
+CLI (May 2026 snapshot — dawn.tar.gz date; the dawn-src git commit date is
+a local-init artifact, do not trust it). Compiled debug/k15/k15.wgsl with
+both (debug/k15/k15-tint-{old,new}.msl):
+- differences: threadgroup-read robustness clamps ELIDED in new (indices
+  provably in-bounds — verified max 1166 < 2336, benign), dot4I8 polyfill
+  refactored into a temp (identical math), statement scheduling/renaming.
+- **No difference that changes in-bounds numeric semantics.** The CLI-level
+  codegen delta does NOT explain the 2.5e-3 mid-row divergence.
+
+Remaining explanation space: RUNTIME compilation differences (Dawn pipeline
+path adds robustness/size-UBO transforms — hesper's runtime MSL is 74.5KB vs
+25KB CLI output; Chrome's runtime MSL unobtainable via console) or an
+execution-environment difference (Metal PSO options, denormal handling at
+mid-row DATA values — note strict-math was ruled out on hesper, but
+Chrome's Metal compile options are not fully known).
+
+NEXT (fast-iteration path): micro-repro — the engine loads kernels from
+files, so EDIT debug/k15-class WGSL in the trace dir and replay (~3 min per
+variant) to bisect which construct triggers the divergence (candidates:
+unpack2x16float f16-scale path / denormal-adjacent data at mid rows / the
+y_block staging). Alternatively build Dawn-native at July rev and swap it
+under hesper to get an apples-to-apples runtime MSL diff.

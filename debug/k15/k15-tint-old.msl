@@ -1,0 +1,784 @@
+#include <metal_stdlib>
+using namespace metal;
+
+template<typename T, size_t N>
+struct tint_array {
+  const constant T& operator[](size_t i) const constant { return elements[i]; }
+  device T& operator[](size_t i) device { return elements[i]; }
+  const device T& operator[](size_t i) const device { return elements[i]; }
+  thread T& operator[](size_t i) thread { return elements[i]; }
+  const thread T& operator[](size_t i) const thread { return elements[i]; }
+  threadgroup T& operator[](size_t i) threadgroup { return elements[i]; }
+  const threadgroup T& operator[](size_t i) const threadgroup { return elements[i]; }
+  T elements[N];
+};
+
+struct tint_module_vars_struct {
+  const device tint_array<uint, 1622016>* weights;
+  const device tint_array<uint, 319104>* input_q8;
+  device tint_array<float, 780032>* output;
+  threadgroup tint_array<uint, 2368>* x_block;
+  threadgroup tint_array<uint, 2336>* y_block;
+};
+
+struct tint_symbol_2 {
+  tint_array<uint, 2368> tint_symbol;
+  tint_array<uint, 2336> tint_symbol_1;
+};
+
+uint tint_div_u32(uint lhs, uint rhs) {
+  return (lhs / select(rhs, 1u, (rhs == 0u)));
+}
+
+int tint_dot(int4 lhs, int4 rhs) {
+  return as_type<int>((as_type<uint>(as_type<int>((as_type<uint>(as_type<int>((as_type<uint>(as_type<int4>((as_type<uint4>(lhs) * as_type<uint4>(rhs))).x) + as_type<uint>(as_type<int4>((as_type<uint4>(lhs) * as_type<uint4>(rhs))).y)))) + as_type<uint>(as_type<int4>((as_type<uint4>(lhs) * as_type<uint4>(rhs))).z)))) + as_type<uint>(as_type<int4>((as_type<uint4>(lhs) * as_type<uint4>(rhs))).w)));
+}
+
+void main_inner(uint3 global_invocation_id, uint3 local_invocation_id, uint3 workgroup_id, uint tint_local_index, tint_module_vars_struct tint_module_vars) {
+  {
+    uint v = 0u;
+    v = tint_local_index;
+    while(true) {
+      uint const v_1 = v;
+      if ((v_1 >= 2336u)) {
+        break;
+      }
+      (*tint_module_vars.y_block)[v_1] = 0u;
+      {
+        v = (v_1 + 256u);
+      }
+      continue;
+    }
+  }
+  {
+    uint v_2 = 0u;
+    v_2 = tint_local_index;
+    while(true) {
+      uint const v_3 = v_2;
+      if ((v_3 >= 2368u)) {
+        break;
+      }
+      (*tint_module_vars.x_block)[v_3] = 0u;
+      {
+        v_2 = (v_3 + 256u);
+      }
+      continue;
+    }
+  }
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+  uint tileExp = 0u;
+  float acc_0_0 = 0.0f;
+  float acc_0_1 = 0.0f;
+  float acc_1_0 = 0.0f;
+  float acc_1_1 = 0.0f;
+  float acc_2_0 = 0.0f;
+  float acc_2_1 = 0.0f;
+  float acc_3_0 = 0.0f;
+  float acc_3_1 = 0.0f;
+  {
+    uint i0 = 0u;
+    while(true) {
+      if ((i0 < 16u)) {
+      } else {
+        break;
+      }
+      {
+        uint i1 = 0u;
+        while(true) {
+          if ((i1 < 9u)) {
+          } else {
+            break;
+          }
+          uint const v_4 = (tint_div_u32(((i1 * 256u) + local_invocation_id.x), 36u) * 37u);
+          uint const v_5 = ((i1 * 256u) + local_invocation_id.x);
+          threadgroup uint* const v_6 = (&(*tint_module_vars.x_block)[min((v_4 + (v_5 - (tint_div_u32(((i1 * 256u) + local_invocation_id.x), 36u) * 36u))), 2367u)]);
+          uint const v_7 = (0u + (((workgroup_id.x * 64u) + tint_div_u32(((i1 * 256u) + local_invocation_id.x), 36u)) * 576u));
+          uint const v_8 = (v_7 + (i0 * 36u));
+          uint const v_9 = ((i1 * 256u) + local_invocation_id.x);
+          (*v_6) = (*tint_module_vars.weights)[min((v_8 + (v_9 - (tint_div_u32(((i1 * 256u) + local_invocation_id.x), 36u) * 36u))), 1622015u)];
+          {
+            i1 = (i1 + 1u);
+          }
+          continue;
+        }
+      }
+      {
+        uint i2 = 0u;
+        while(true) {
+          if ((i2 < 9u)) {
+          } else {
+            break;
+          }
+          if ((((workgroup_id.y * 32u) + tint_div_u32(((i2 * 256u) + local_invocation_id.x), 72u)) < 277u)) {
+            uint const v_10 = (tint_div_u32(((i2 * 256u) + local_invocation_id.x), 72u) * 73u);
+            uint const v_11 = ((i2 * 256u) + local_invocation_id.x);
+            threadgroup uint* const v_12 = (&(*tint_module_vars.y_block)[min((v_10 + (v_11 - (tint_div_u32(((i2 * 256u) + local_invocation_id.x), 72u) * 72u))), 2335u)]);
+            uint const v_13 = ((0u + ((workgroup_id.y * 32u) + tint_div_u32(((i2 * 256u) + local_invocation_id.x), 72u))) * 1152u);
+            uint const v_14 = (v_13 + (i0 * 72u));
+            uint const v_15 = ((i2 * 256u) + local_invocation_id.x);
+            (*v_12) = (*tint_module_vars.input_q8)[min((v_14 + (v_15 - (tint_div_u32(((i2 * 256u) + local_invocation_id.x), 72u) * 72u))), 319103u)];
+          }
+          {
+            i2 = (i2 + 1u);
+          }
+          continue;
+        }
+      }
+      threadgroup_barrier(mem_flags::mem_threadgroup);
+      {
+        uint i3 = 0u;
+        while(true) {
+          if ((i3 < 4u)) {
+          } else {
+            break;
+          }
+          {
+            uint i4 = 0u;
+            while(true) {
+              if ((i4 < 4u)) {
+              } else {
+                break;
+              }
+              float const v_16 = acc_0_0;
+              float const v_17 = float2(as_type<half2>((*tint_module_vars.x_block)[min(((0u + (local_invocation_id.x & 31u)) * 37u), 2367u)])).x;
+              float const v_18 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)), 2335u)])).x;
+              uint const v_19 = ((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + (4u + (((i3 * 2u) * 4u) + i4))), 2367u)] & 252645135u);
+              uint const v_20 = (*tint_module_vars.y_block)[min(((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)) + (1u + i4)), 2335u)];
+              uint4 const v_21 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_22 = as_type<int4>((uint4(v_19) << v_21));
+              int4 const v_23 = (v_22 >> uint4(24u));
+              uint4 const v_24 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_25 = as_type<int4>((uint4(v_20) << v_24));
+              int const v_26 = tint_dot(v_23, (v_25 >> uint4(24u)));
+              uint const v_27 = ((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + ((4u + (((i3 * 2u) * 4u) + i4)) + 4u)), 2367u)] & 252645135u);
+              uint const v_28 = (*tint_module_vars.y_block)[min(((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)) + (5u + i4)), 2335u)];
+              uint4 const v_29 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_30 = as_type<int4>((uint4(v_27) << v_29));
+              int4 const v_31 = (v_30 >> uint4(24u));
+              uint4 const v_32 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_33 = as_type<int4>((uint4(v_28) << v_32));
+              float const v_34 = float(as_type<int>((as_type<uint>(v_26) + as_type<uint>(tint_dot(v_31, (v_33 >> uint4(24u)))))));
+              float const v_35 = (v_18 * (v_34 * float(select(((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> ((((i3 * 2u) - 4u) * 8u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> (((((i3 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> (((i3 * 2u) * 8u) & 31u)) & 63u), ((i3 * 2u) < 4u)))));
+              float const v_36 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)), 2335u)])).x;
+              uint const v_37 = (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + (4u + (((i3 * 2u) * 4u) + i4))), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_38 = (*tint_module_vars.y_block)[min(((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)) + (1u + i4)), 2335u)];
+              uint4 const v_39 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_40 = as_type<int4>((uint4(v_37) << v_39));
+              int4 const v_41 = (v_40 >> uint4(24u));
+              uint4 const v_42 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_43 = as_type<int4>((uint4(v_38) << v_42));
+              int const v_44 = tint_dot(v_41, (v_43 >> uint4(24u)));
+              uint const v_45 = (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + ((4u + (((i3 * 2u) * 4u) + i4)) + 4u)), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_46 = (*tint_module_vars.y_block)[min(((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)) + (5u + i4)), 2335u)];
+              uint4 const v_47 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_48 = as_type<int4>((uint4(v_45) << v_47));
+              int4 const v_49 = (v_48 >> uint4(24u));
+              uint4 const v_50 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_51 = as_type<int4>((uint4(v_46) << v_50));
+              float const v_52 = float(as_type<int>((as_type<uint>(v_44) + as_type<uint>(tint_dot(v_49, (v_51 >> uint4(24u)))))));
+              float const v_53 = (v_17 * (v_35 + (v_36 * (v_52 * float(select(((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> (((((i3 * 2u) + 1u) - 4u) * 8u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> ((((((i3 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> ((((i3 * 2u) + 1u) * 8u) & 31u)) & 63u), (((i3 * 2u) + 1u) < 4u)))))));
+              float const v_54 = float2(as_type<half2>((*tint_module_vars.x_block)[min(((0u + (local_invocation_id.x & 31u)) * 37u), 2367u)])).y;
+              float const v_55 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)), 2335u)])).x;
+              uint const v_56 = (*tint_module_vars.y_block)[min(((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)) + (1u + i4)), 2335u)];
+              uint4 const v_57 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_58 = as_type<int4>((uint4(16843009u) << v_57));
+              int4 const v_59 = (v_58 >> uint4(24u));
+              uint4 const v_60 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_61 = as_type<int4>((uint4(v_56) << v_60));
+              int const v_62 = tint_dot(v_59, (v_61 >> uint4(24u)));
+              uint const v_63 = (*tint_module_vars.y_block)[min(((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)) + (5u + i4)), 2335u)];
+              uint4 const v_64 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_65 = as_type<int4>((uint4(16843009u) << v_64));
+              int4 const v_66 = (v_65 >> uint4(24u));
+              uint4 const v_67 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_68 = as_type<int4>((uint4(v_63) << v_67));
+              float const v_69 = float(as_type<int>((as_type<uint>(v_62) + as_type<uint>(tint_dot(v_66, (v_68 >> uint4(24u)))))));
+              float const v_70 = (v_55 * (v_69 * float(select(((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> (((((i3 * 2u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> (((((i3 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> (((i3 * 2u) * 8u) & 31u)) & 63u), ((i3 * 2u) < 4u)))));
+              float const v_71 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)), 2335u)])).x;
+              uint const v_72 = (*tint_module_vars.y_block)[min(((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)) + (1u + i4)), 2335u)];
+              uint4 const v_73 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_74 = as_type<int4>((uint4(16843009u) << v_73));
+              int4 const v_75 = (v_74 >> uint4(24u));
+              uint4 const v_76 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_77 = as_type<int4>((uint4(v_72) << v_76));
+              int const v_78 = tint_dot(v_75, (v_77 >> uint4(24u)));
+              uint const v_79 = (*tint_module_vars.y_block)[min(((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)) + (5u + i4)), 2335u)];
+              uint4 const v_80 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_81 = as_type<int4>((uint4(16843009u) << v_80));
+              int4 const v_82 = (v_81 >> uint4(24u));
+              uint4 const v_83 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_84 = as_type<int4>((uint4(v_79) << v_83));
+              float const v_85 = float(as_type<int>((as_type<uint>(v_78) + as_type<uint>(tint_dot(v_82, (v_84 >> uint4(24u)))))));
+              acc_0_0 = (v_16 + (v_53 - (v_54 * (v_70 + (v_71 * (v_85 * float(select(((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> ((((((i3 * 2u) + 1u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> ((((((i3 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> ((((i3 * 2u) + 1u) * 8u) & 31u)) & 63u), (((i3 * 2u) + 1u) < 4u)))))))));
+              float const v_86 = acc_1_0;
+              float const v_87 = float2(as_type<half2>((*tint_module_vars.x_block)[min(((0u + (local_invocation_id.x & 31u)) * 37u), 2367u)])).x;
+              float const v_88 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)), 2335u)])).x;
+              uint const v_89 = ((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + (4u + (((i3 * 2u) * 4u) + i4))), 2367u)] & 252645135u);
+              uint const v_90 = (*tint_module_vars.y_block)[min(((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)) + (1u + i4)), 2335u)];
+              uint4 const v_91 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_92 = as_type<int4>((uint4(v_89) << v_91));
+              int4 const v_93 = (v_92 >> uint4(24u));
+              uint4 const v_94 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_95 = as_type<int4>((uint4(v_90) << v_94));
+              int const v_96 = tint_dot(v_93, (v_95 >> uint4(24u)));
+              uint const v_97 = ((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + ((4u + (((i3 * 2u) * 4u) + i4)) + 4u)), 2367u)] & 252645135u);
+              uint const v_98 = (*tint_module_vars.y_block)[min(((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)) + (5u + i4)), 2335u)];
+              uint4 const v_99 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_100 = as_type<int4>((uint4(v_97) << v_99));
+              int4 const v_101 = (v_100 >> uint4(24u));
+              uint4 const v_102 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_103 = as_type<int4>((uint4(v_98) << v_102));
+              float const v_104 = float(as_type<int>((as_type<uint>(v_96) + as_type<uint>(tint_dot(v_101, (v_103 >> uint4(24u)))))));
+              float const v_105 = (v_88 * (v_104 * float(select(((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> ((((i3 * 2u) - 4u) * 8u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> (((((i3 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> (((i3 * 2u) * 8u) & 31u)) & 63u), ((i3 * 2u) < 4u)))));
+              float const v_106 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)), 2335u)])).x;
+              uint const v_107 = (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + (4u + (((i3 * 2u) * 4u) + i4))), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_108 = (*tint_module_vars.y_block)[min(((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)) + (1u + i4)), 2335u)];
+              uint4 const v_109 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_110 = as_type<int4>((uint4(v_107) << v_109));
+              int4 const v_111 = (v_110 >> uint4(24u));
+              uint4 const v_112 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_113 = as_type<int4>((uint4(v_108) << v_112));
+              int const v_114 = tint_dot(v_111, (v_113 >> uint4(24u)));
+              uint const v_115 = (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + ((4u + (((i3 * 2u) * 4u) + i4)) + 4u)), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_116 = (*tint_module_vars.y_block)[min(((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)) + (5u + i4)), 2335u)];
+              uint4 const v_117 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_118 = as_type<int4>((uint4(v_115) << v_117));
+              int4 const v_119 = (v_118 >> uint4(24u));
+              uint4 const v_120 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_121 = as_type<int4>((uint4(v_116) << v_120));
+              float const v_122 = float(as_type<int>((as_type<uint>(v_114) + as_type<uint>(tint_dot(v_119, (v_121 >> uint4(24u)))))));
+              float const v_123 = (v_87 * (v_105 + (v_106 * (v_122 * float(select(((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> (((((i3 * 2u) + 1u) - 4u) * 8u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> ((((((i3 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> ((((i3 * 2u) + 1u) * 8u) & 31u)) & 63u), (((i3 * 2u) + 1u) < 4u)))))));
+              float const v_124 = float2(as_type<half2>((*tint_module_vars.x_block)[min(((0u + (local_invocation_id.x & 31u)) * 37u), 2367u)])).y;
+              float const v_125 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)), 2335u)])).x;
+              uint const v_126 = (*tint_module_vars.y_block)[min(((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)) + (1u + i4)), 2335u)];
+              uint4 const v_127 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_128 = as_type<int4>((uint4(16843009u) << v_127));
+              int4 const v_129 = (v_128 >> uint4(24u));
+              uint4 const v_130 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_131 = as_type<int4>((uint4(v_126) << v_130));
+              int const v_132 = tint_dot(v_129, (v_131 >> uint4(24u)));
+              uint const v_133 = (*tint_module_vars.y_block)[min(((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)) + (5u + i4)), 2335u)];
+              uint4 const v_134 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_135 = as_type<int4>((uint4(16843009u) << v_134));
+              int4 const v_136 = (v_135 >> uint4(24u));
+              uint4 const v_137 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_138 = as_type<int4>((uint4(v_133) << v_137));
+              float const v_139 = float(as_type<int>((as_type<uint>(v_132) + as_type<uint>(tint_dot(v_136, (v_138 >> uint4(24u)))))));
+              float const v_140 = (v_125 * (v_139 * float(select(((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> (((((i3 * 2u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> (((((i3 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> (((i3 * 2u) * 8u) & 31u)) & 63u), ((i3 * 2u) < 4u)))));
+              float const v_141 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)), 2335u)])).x;
+              uint const v_142 = (*tint_module_vars.y_block)[min(((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)) + (1u + i4)), 2335u)];
+              uint4 const v_143 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_144 = as_type<int4>((uint4(16843009u) << v_143));
+              int4 const v_145 = (v_144 >> uint4(24u));
+              uint4 const v_146 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_147 = as_type<int4>((uint4(v_142) << v_146));
+              int const v_148 = tint_dot(v_145, (v_147 >> uint4(24u)));
+              uint const v_149 = (*tint_module_vars.y_block)[min(((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)) + (5u + i4)), 2335u)];
+              uint4 const v_150 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_151 = as_type<int4>((uint4(16843009u) << v_150));
+              int4 const v_152 = (v_151 >> uint4(24u));
+              uint4 const v_153 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_154 = as_type<int4>((uint4(v_149) << v_153));
+              float const v_155 = float(as_type<int>((as_type<uint>(v_148) + as_type<uint>(tint_dot(v_152, (v_154 >> uint4(24u)))))));
+              acc_1_0 = (v_86 + (v_123 - (v_124 * (v_140 + (v_141 * (v_155 * float(select(((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> ((((((i3 * 2u) + 1u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> ((((((i3 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> ((((i3 * 2u) + 1u) * 8u) & 31u)) & 63u), (((i3 * 2u) + 1u) < 4u)))))))));
+              float const v_156 = acc_2_0;
+              float const v_157 = float2(as_type<half2>((*tint_module_vars.x_block)[min(((0u + (local_invocation_id.x & 31u)) * 37u), 2367u)])).x;
+              float const v_158 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)), 2335u)])).x;
+              uint const v_159 = ((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + (4u + (((i3 * 2u) * 4u) + i4))), 2367u)] & 252645135u);
+              uint const v_160 = (*tint_module_vars.y_block)[min(((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)) + (1u + i4)), 2335u)];
+              uint4 const v_161 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_162 = as_type<int4>((uint4(v_159) << v_161));
+              int4 const v_163 = (v_162 >> uint4(24u));
+              uint4 const v_164 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_165 = as_type<int4>((uint4(v_160) << v_164));
+              int const v_166 = tint_dot(v_163, (v_165 >> uint4(24u)));
+              uint const v_167 = ((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + ((4u + (((i3 * 2u) * 4u) + i4)) + 4u)), 2367u)] & 252645135u);
+              uint const v_168 = (*tint_module_vars.y_block)[min(((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)) + (5u + i4)), 2335u)];
+              uint4 const v_169 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_170 = as_type<int4>((uint4(v_167) << v_169));
+              int4 const v_171 = (v_170 >> uint4(24u));
+              uint4 const v_172 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_173 = as_type<int4>((uint4(v_168) << v_172));
+              float const v_174 = float(as_type<int>((as_type<uint>(v_166) + as_type<uint>(tint_dot(v_171, (v_173 >> uint4(24u)))))));
+              float const v_175 = (v_158 * (v_174 * float(select(((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> ((((i3 * 2u) - 4u) * 8u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> (((((i3 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> (((i3 * 2u) * 8u) & 31u)) & 63u), ((i3 * 2u) < 4u)))));
+              float const v_176 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)), 2335u)])).x;
+              uint const v_177 = (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + (4u + (((i3 * 2u) * 4u) + i4))), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_178 = (*tint_module_vars.y_block)[min(((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)) + (1u + i4)), 2335u)];
+              uint4 const v_179 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_180 = as_type<int4>((uint4(v_177) << v_179));
+              int4 const v_181 = (v_180 >> uint4(24u));
+              uint4 const v_182 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_183 = as_type<int4>((uint4(v_178) << v_182));
+              int const v_184 = tint_dot(v_181, (v_183 >> uint4(24u)));
+              uint const v_185 = (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + ((4u + (((i3 * 2u) * 4u) + i4)) + 4u)), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_186 = (*tint_module_vars.y_block)[min(((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)) + (5u + i4)), 2335u)];
+              uint4 const v_187 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_188 = as_type<int4>((uint4(v_185) << v_187));
+              int4 const v_189 = (v_188 >> uint4(24u));
+              uint4 const v_190 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_191 = as_type<int4>((uint4(v_186) << v_190));
+              float const v_192 = float(as_type<int>((as_type<uint>(v_184) + as_type<uint>(tint_dot(v_189, (v_191 >> uint4(24u)))))));
+              float const v_193 = (v_157 * (v_175 + (v_176 * (v_192 * float(select(((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> (((((i3 * 2u) + 1u) - 4u) * 8u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> ((((((i3 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> ((((i3 * 2u) + 1u) * 8u) & 31u)) & 63u), (((i3 * 2u) + 1u) < 4u)))))));
+              float const v_194 = float2(as_type<half2>((*tint_module_vars.x_block)[min(((0u + (local_invocation_id.x & 31u)) * 37u), 2367u)])).y;
+              float const v_195 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)), 2335u)])).x;
+              uint const v_196 = (*tint_module_vars.y_block)[min(((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)) + (1u + i4)), 2335u)];
+              uint4 const v_197 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_198 = as_type<int4>((uint4(16843009u) << v_197));
+              int4 const v_199 = (v_198 >> uint4(24u));
+              uint4 const v_200 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_201 = as_type<int4>((uint4(v_196) << v_200));
+              int const v_202 = tint_dot(v_199, (v_201 >> uint4(24u)));
+              uint const v_203 = (*tint_module_vars.y_block)[min(((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)) + (5u + i4)), 2335u)];
+              uint4 const v_204 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_205 = as_type<int4>((uint4(16843009u) << v_204));
+              int4 const v_206 = (v_205 >> uint4(24u));
+              uint4 const v_207 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_208 = as_type<int4>((uint4(v_203) << v_207));
+              float const v_209 = float(as_type<int>((as_type<uint>(v_202) + as_type<uint>(tint_dot(v_206, (v_208 >> uint4(24u)))))));
+              float const v_210 = (v_195 * (v_209 * float(select(((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> (((((i3 * 2u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> (((((i3 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> (((i3 * 2u) * 8u) & 31u)) & 63u), ((i3 * 2u) < 4u)))));
+              float const v_211 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)), 2335u)])).x;
+              uint const v_212 = (*tint_module_vars.y_block)[min(((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)) + (1u + i4)), 2335u)];
+              uint4 const v_213 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_214 = as_type<int4>((uint4(16843009u) << v_213));
+              int4 const v_215 = (v_214 >> uint4(24u));
+              uint4 const v_216 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_217 = as_type<int4>((uint4(v_212) << v_216));
+              int const v_218 = tint_dot(v_215, (v_217 >> uint4(24u)));
+              uint const v_219 = (*tint_module_vars.y_block)[min(((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)) + (5u + i4)), 2335u)];
+              uint4 const v_220 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_221 = as_type<int4>((uint4(16843009u) << v_220));
+              int4 const v_222 = (v_221 >> uint4(24u));
+              uint4 const v_223 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_224 = as_type<int4>((uint4(v_219) << v_223));
+              float const v_225 = float(as_type<int>((as_type<uint>(v_218) + as_type<uint>(tint_dot(v_222, (v_224 >> uint4(24u)))))));
+              acc_2_0 = (v_156 + (v_193 - (v_194 * (v_210 + (v_211 * (v_225 * float(select(((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> ((((((i3 * 2u) + 1u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> ((((((i3 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> ((((i3 * 2u) + 1u) * 8u) & 31u)) & 63u), (((i3 * 2u) + 1u) < 4u)))))))));
+              float const v_226 = acc_3_0;
+              float const v_227 = float2(as_type<half2>((*tint_module_vars.x_block)[min(((0u + (local_invocation_id.x & 31u)) * 37u), 2367u)])).x;
+              float const v_228 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)), 2335u)])).x;
+              uint const v_229 = ((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + (4u + (((i3 * 2u) * 4u) + i4))), 2367u)] & 252645135u);
+              uint const v_230 = (*tint_module_vars.y_block)[min(((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)) + (1u + i4)), 2335u)];
+              uint4 const v_231 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_232 = as_type<int4>((uint4(v_229) << v_231));
+              int4 const v_233 = (v_232 >> uint4(24u));
+              uint4 const v_234 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_235 = as_type<int4>((uint4(v_230) << v_234));
+              int const v_236 = tint_dot(v_233, (v_235 >> uint4(24u)));
+              uint const v_237 = ((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + ((4u + (((i3 * 2u) * 4u) + i4)) + 4u)), 2367u)] & 252645135u);
+              uint const v_238 = (*tint_module_vars.y_block)[min(((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)) + (5u + i4)), 2335u)];
+              uint4 const v_239 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_240 = as_type<int4>((uint4(v_237) << v_239));
+              int4 const v_241 = (v_240 >> uint4(24u));
+              uint4 const v_242 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_243 = as_type<int4>((uint4(v_238) << v_242));
+              float const v_244 = float(as_type<int>((as_type<uint>(v_236) + as_type<uint>(tint_dot(v_241, (v_243 >> uint4(24u)))))));
+              float const v_245 = (v_228 * (v_244 * float(select(((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> ((((i3 * 2u) - 4u) * 8u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> (((((i3 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> (((i3 * 2u) * 8u) & 31u)) & 63u), ((i3 * 2u) < 4u)))));
+              float const v_246 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)), 2335u)])).x;
+              uint const v_247 = (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + (4u + (((i3 * 2u) * 4u) + i4))), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_248 = (*tint_module_vars.y_block)[min(((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)) + (1u + i4)), 2335u)];
+              uint4 const v_249 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_250 = as_type<int4>((uint4(v_247) << v_249));
+              int4 const v_251 = (v_250 >> uint4(24u));
+              uint4 const v_252 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_253 = as_type<int4>((uint4(v_248) << v_252));
+              int const v_254 = tint_dot(v_251, (v_253 >> uint4(24u)));
+              uint const v_255 = (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + ((4u + (((i3 * 2u) * 4u) + i4)) + 4u)), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_256 = (*tint_module_vars.y_block)[min(((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)) + (5u + i4)), 2335u)];
+              uint4 const v_257 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_258 = as_type<int4>((uint4(v_255) << v_257));
+              int4 const v_259 = (v_258 >> uint4(24u));
+              uint4 const v_260 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_261 = as_type<int4>((uint4(v_256) << v_260));
+              float const v_262 = float(as_type<int>((as_type<uint>(v_254) + as_type<uint>(tint_dot(v_259, (v_261 >> uint4(24u)))))));
+              float const v_263 = (v_227 * (v_245 + (v_246 * (v_262 * float(select(((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> (((((i3 * 2u) + 1u) - 4u) * 8u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> ((((((i3 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> ((((i3 * 2u) + 1u) * 8u) & 31u)) & 63u), (((i3 * 2u) + 1u) < 4u)))))));
+              float const v_264 = float2(as_type<half2>((*tint_module_vars.x_block)[min(((0u + (local_invocation_id.x & 31u)) * 37u), 2367u)])).y;
+              float const v_265 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)), 2335u)])).x;
+              uint const v_266 = (*tint_module_vars.y_block)[min(((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)) + (1u + i4)), 2335u)];
+              uint4 const v_267 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_268 = as_type<int4>((uint4(16843009u) << v_267));
+              int4 const v_269 = (v_268 >> uint4(24u));
+              uint4 const v_270 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_271 = as_type<int4>((uint4(v_266) << v_270));
+              int const v_272 = tint_dot(v_269, (v_271 >> uint4(24u)));
+              uint const v_273 = (*tint_module_vars.y_block)[min(((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i3 * 2u) * 9u)) + (5u + i4)), 2335u)];
+              uint4 const v_274 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_275 = as_type<int4>((uint4(16843009u) << v_274));
+              int4 const v_276 = (v_275 >> uint4(24u));
+              uint4 const v_277 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_278 = as_type<int4>((uint4(v_273) << v_277));
+              float const v_279 = float(as_type<int>((as_type<uint>(v_272) + as_type<uint>(tint_dot(v_276, (v_278 >> uint4(24u)))))));
+              float const v_280 = (v_265 * (v_279 * float(select(((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> (((((i3 * 2u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> (((((i3 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> (((i3 * 2u) * 8u) & 31u)) & 63u), ((i3 * 2u) < 4u)))));
+              float const v_281 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)), 2335u)])).x;
+              uint const v_282 = (*tint_module_vars.y_block)[min(((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)) + (1u + i4)), 2335u)];
+              uint4 const v_283 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_284 = as_type<int4>((uint4(16843009u) << v_283));
+              int4 const v_285 = (v_284 >> uint4(24u));
+              uint4 const v_286 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_287 = as_type<int4>((uint4(v_282) << v_286));
+              int const v_288 = tint_dot(v_285, (v_287 >> uint4(24u)));
+              uint const v_289 = (*tint_module_vars.y_block)[min(((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i3 * 2u) + 1u) * 9u)) + (5u + i4)), 2335u)];
+              uint4 const v_290 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_291 = as_type<int4>((uint4(16843009u) << v_290));
+              int4 const v_292 = (v_291 >> uint4(24u));
+              uint4 const v_293 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_294 = as_type<int4>((uint4(v_289) << v_293));
+              float const v_295 = float(as_type<int>((as_type<uint>(v_288) + as_type<uint>(tint_dot(v_292, (v_294 >> uint4(24u)))))));
+              acc_3_0 = (v_226 + (v_263 - (v_264 * (v_280 + (v_281 * (v_295 * float(select(((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> ((((((i3 * 2u) + 1u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> ((((((i3 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((0u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> ((((i3 * 2u) + 1u) * 8u) & 31u)) & 63u), (((i3 * 2u) + 1u) < 4u)))))))));
+              {
+                i4 = (i4 + 1u);
+              }
+              continue;
+            }
+          }
+          {
+            i3 = (i3 + 1u);
+          }
+          continue;
+        }
+      }
+      {
+        uint i5 = 0u;
+        while(true) {
+          if ((i5 < 4u)) {
+          } else {
+            break;
+          }
+          {
+            uint i6 = 0u;
+            while(true) {
+              if ((i6 < 4u)) {
+              } else {
+                break;
+              }
+              float const v_296 = acc_0_1;
+              float const v_297 = float2(as_type<half2>((*tint_module_vars.x_block)[min(((32u + (local_invocation_id.x & 31u)) * 37u), 2367u)])).x;
+              float const v_298 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)), 2335u)])).x;
+              uint const v_299 = ((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + (4u + (((i5 * 2u) * 4u) + i6))), 2367u)] & 252645135u);
+              uint const v_300 = (*tint_module_vars.y_block)[min(((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)) + (1u + i6)), 2335u)];
+              uint4 const v_301 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_302 = as_type<int4>((uint4(v_299) << v_301));
+              int4 const v_303 = (v_302 >> uint4(24u));
+              uint4 const v_304 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_305 = as_type<int4>((uint4(v_300) << v_304));
+              int const v_306 = tint_dot(v_303, (v_305 >> uint4(24u)));
+              uint const v_307 = ((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + ((4u + (((i5 * 2u) * 4u) + i6)) + 4u)), 2367u)] & 252645135u);
+              uint const v_308 = (*tint_module_vars.y_block)[min(((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)) + (5u + i6)), 2335u)];
+              uint4 const v_309 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_310 = as_type<int4>((uint4(v_307) << v_309));
+              int4 const v_311 = (v_310 >> uint4(24u));
+              uint4 const v_312 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_313 = as_type<int4>((uint4(v_308) << v_312));
+              float const v_314 = float(as_type<int>((as_type<uint>(v_306) + as_type<uint>(tint_dot(v_311, (v_313 >> uint4(24u)))))));
+              float const v_315 = (v_298 * (v_314 * float(select(((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> ((((i5 * 2u) - 4u) * 8u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> (((((i5 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> (((i5 * 2u) * 8u) & 31u)) & 63u), ((i5 * 2u) < 4u)))));
+              float const v_316 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)), 2335u)])).x;
+              uint const v_317 = (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + (4u + (((i5 * 2u) * 4u) + i6))), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_318 = (*tint_module_vars.y_block)[min(((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)) + (1u + i6)), 2335u)];
+              uint4 const v_319 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_320 = as_type<int4>((uint4(v_317) << v_319));
+              int4 const v_321 = (v_320 >> uint4(24u));
+              uint4 const v_322 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_323 = as_type<int4>((uint4(v_318) << v_322));
+              int const v_324 = tint_dot(v_321, (v_323 >> uint4(24u)));
+              uint const v_325 = (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + ((4u + (((i5 * 2u) * 4u) + i6)) + 4u)), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_326 = (*tint_module_vars.y_block)[min(((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)) + (5u + i6)), 2335u)];
+              uint4 const v_327 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_328 = as_type<int4>((uint4(v_325) << v_327));
+              int4 const v_329 = (v_328 >> uint4(24u));
+              uint4 const v_330 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_331 = as_type<int4>((uint4(v_326) << v_330));
+              float const v_332 = float(as_type<int>((as_type<uint>(v_324) + as_type<uint>(tint_dot(v_329, (v_331 >> uint4(24u)))))));
+              float const v_333 = (v_297 * (v_315 + (v_316 * (v_332 * float(select(((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> (((((i5 * 2u) + 1u) - 4u) * 8u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> ((((((i5 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> ((((i5 * 2u) + 1u) * 8u) & 31u)) & 63u), (((i5 * 2u) + 1u) < 4u)))))));
+              float const v_334 = float2(as_type<half2>((*tint_module_vars.x_block)[min(((32u + (local_invocation_id.x & 31u)) * 37u), 2367u)])).y;
+              float const v_335 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)), 2335u)])).x;
+              uint const v_336 = (*tint_module_vars.y_block)[min(((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)) + (1u + i6)), 2335u)];
+              uint4 const v_337 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_338 = as_type<int4>((uint4(16843009u) << v_337));
+              int4 const v_339 = (v_338 >> uint4(24u));
+              uint4 const v_340 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_341 = as_type<int4>((uint4(v_336) << v_340));
+              int const v_342 = tint_dot(v_339, (v_341 >> uint4(24u)));
+              uint const v_343 = (*tint_module_vars.y_block)[min(((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)) + (5u + i6)), 2335u)];
+              uint4 const v_344 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_345 = as_type<int4>((uint4(16843009u) << v_344));
+              int4 const v_346 = (v_345 >> uint4(24u));
+              uint4 const v_347 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_348 = as_type<int4>((uint4(v_343) << v_347));
+              float const v_349 = float(as_type<int>((as_type<uint>(v_342) + as_type<uint>(tint_dot(v_346, (v_348 >> uint4(24u)))))));
+              float const v_350 = (v_335 * (v_349 * float(select(((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> (((((i5 * 2u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> (((((i5 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> (((i5 * 2u) * 8u) & 31u)) & 63u), ((i5 * 2u) < 4u)))));
+              float const v_351 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)), 2335u)])).x;
+              uint const v_352 = (*tint_module_vars.y_block)[min(((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)) + (1u + i6)), 2335u)];
+              uint4 const v_353 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_354 = as_type<int4>((uint4(16843009u) << v_353));
+              int4 const v_355 = (v_354 >> uint4(24u));
+              uint4 const v_356 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_357 = as_type<int4>((uint4(v_352) << v_356));
+              int const v_358 = tint_dot(v_355, (v_357 >> uint4(24u)));
+              uint const v_359 = (*tint_module_vars.y_block)[min(((((0u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)) + (5u + i6)), 2335u)];
+              uint4 const v_360 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_361 = as_type<int4>((uint4(16843009u) << v_360));
+              int4 const v_362 = (v_361 >> uint4(24u));
+              uint4 const v_363 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_364 = as_type<int4>((uint4(v_359) << v_363));
+              float const v_365 = float(as_type<int>((as_type<uint>(v_358) + as_type<uint>(tint_dot(v_362, (v_364 >> uint4(24u)))))));
+              acc_0_1 = (v_296 + (v_333 - (v_334 * (v_350 + (v_351 * (v_365 * float(select(((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> ((((((i5 * 2u) + 1u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> ((((((i5 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> ((((i5 * 2u) + 1u) * 8u) & 31u)) & 63u), (((i5 * 2u) + 1u) < 4u)))))))));
+              float const v_366 = acc_1_1;
+              float const v_367 = float2(as_type<half2>((*tint_module_vars.x_block)[min(((32u + (local_invocation_id.x & 31u)) * 37u), 2367u)])).x;
+              float const v_368 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)), 2335u)])).x;
+              uint const v_369 = ((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + (4u + (((i5 * 2u) * 4u) + i6))), 2367u)] & 252645135u);
+              uint const v_370 = (*tint_module_vars.y_block)[min(((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)) + (1u + i6)), 2335u)];
+              uint4 const v_371 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_372 = as_type<int4>((uint4(v_369) << v_371));
+              int4 const v_373 = (v_372 >> uint4(24u));
+              uint4 const v_374 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_375 = as_type<int4>((uint4(v_370) << v_374));
+              int const v_376 = tint_dot(v_373, (v_375 >> uint4(24u)));
+              uint const v_377 = ((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + ((4u + (((i5 * 2u) * 4u) + i6)) + 4u)), 2367u)] & 252645135u);
+              uint const v_378 = (*tint_module_vars.y_block)[min(((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)) + (5u + i6)), 2335u)];
+              uint4 const v_379 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_380 = as_type<int4>((uint4(v_377) << v_379));
+              int4 const v_381 = (v_380 >> uint4(24u));
+              uint4 const v_382 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_383 = as_type<int4>((uint4(v_378) << v_382));
+              float const v_384 = float(as_type<int>((as_type<uint>(v_376) + as_type<uint>(tint_dot(v_381, (v_383 >> uint4(24u)))))));
+              float const v_385 = (v_368 * (v_384 * float(select(((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> ((((i5 * 2u) - 4u) * 8u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> (((((i5 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> (((i5 * 2u) * 8u) & 31u)) & 63u), ((i5 * 2u) < 4u)))));
+              float const v_386 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)), 2335u)])).x;
+              uint const v_387 = (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + (4u + (((i5 * 2u) * 4u) + i6))), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_388 = (*tint_module_vars.y_block)[min(((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)) + (1u + i6)), 2335u)];
+              uint4 const v_389 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_390 = as_type<int4>((uint4(v_387) << v_389));
+              int4 const v_391 = (v_390 >> uint4(24u));
+              uint4 const v_392 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_393 = as_type<int4>((uint4(v_388) << v_392));
+              int const v_394 = tint_dot(v_391, (v_393 >> uint4(24u)));
+              uint const v_395 = (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + ((4u + (((i5 * 2u) * 4u) + i6)) + 4u)), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_396 = (*tint_module_vars.y_block)[min(((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)) + (5u + i6)), 2335u)];
+              uint4 const v_397 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_398 = as_type<int4>((uint4(v_395) << v_397));
+              int4 const v_399 = (v_398 >> uint4(24u));
+              uint4 const v_400 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_401 = as_type<int4>((uint4(v_396) << v_400));
+              float const v_402 = float(as_type<int>((as_type<uint>(v_394) + as_type<uint>(tint_dot(v_399, (v_401 >> uint4(24u)))))));
+              float const v_403 = (v_367 * (v_385 + (v_386 * (v_402 * float(select(((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> (((((i5 * 2u) + 1u) - 4u) * 8u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> ((((((i5 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> ((((i5 * 2u) + 1u) * 8u) & 31u)) & 63u), (((i5 * 2u) + 1u) < 4u)))))));
+              float const v_404 = float2(as_type<half2>((*tint_module_vars.x_block)[min(((32u + (local_invocation_id.x & 31u)) * 37u), 2367u)])).y;
+              float const v_405 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)), 2335u)])).x;
+              uint const v_406 = (*tint_module_vars.y_block)[min(((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)) + (1u + i6)), 2335u)];
+              uint4 const v_407 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_408 = as_type<int4>((uint4(16843009u) << v_407));
+              int4 const v_409 = (v_408 >> uint4(24u));
+              uint4 const v_410 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_411 = as_type<int4>((uint4(v_406) << v_410));
+              int const v_412 = tint_dot(v_409, (v_411 >> uint4(24u)));
+              uint const v_413 = (*tint_module_vars.y_block)[min(((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)) + (5u + i6)), 2335u)];
+              uint4 const v_414 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_415 = as_type<int4>((uint4(16843009u) << v_414));
+              int4 const v_416 = (v_415 >> uint4(24u));
+              uint4 const v_417 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_418 = as_type<int4>((uint4(v_413) << v_417));
+              float const v_419 = float(as_type<int>((as_type<uint>(v_412) + as_type<uint>(tint_dot(v_416, (v_418 >> uint4(24u)))))));
+              float const v_420 = (v_405 * (v_419 * float(select(((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> (((((i5 * 2u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> (((((i5 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> (((i5 * 2u) * 8u) & 31u)) & 63u), ((i5 * 2u) < 4u)))));
+              float const v_421 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)), 2335u)])).x;
+              uint const v_422 = (*tint_module_vars.y_block)[min(((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)) + (1u + i6)), 2335u)];
+              uint4 const v_423 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_424 = as_type<int4>((uint4(16843009u) << v_423));
+              int4 const v_425 = (v_424 >> uint4(24u));
+              uint4 const v_426 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_427 = as_type<int4>((uint4(v_422) << v_426));
+              int const v_428 = tint_dot(v_425, (v_427 >> uint4(24u)));
+              uint const v_429 = (*tint_module_vars.y_block)[min(((((8u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)) + (5u + i6)), 2335u)];
+              uint4 const v_430 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_431 = as_type<int4>((uint4(16843009u) << v_430));
+              int4 const v_432 = (v_431 >> uint4(24u));
+              uint4 const v_433 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_434 = as_type<int4>((uint4(v_429) << v_433));
+              float const v_435 = float(as_type<int>((as_type<uint>(v_428) + as_type<uint>(tint_dot(v_432, (v_434 >> uint4(24u)))))));
+              acc_1_1 = (v_366 + (v_403 - (v_404 * (v_420 + (v_421 * (v_435 * float(select(((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> ((((((i5 * 2u) + 1u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> ((((((i5 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> ((((i5 * 2u) + 1u) * 8u) & 31u)) & 63u), (((i5 * 2u) + 1u) < 4u)))))))));
+              float const v_436 = acc_2_1;
+              float const v_437 = float2(as_type<half2>((*tint_module_vars.x_block)[min(((32u + (local_invocation_id.x & 31u)) * 37u), 2367u)])).x;
+              float const v_438 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)), 2335u)])).x;
+              uint const v_439 = ((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + (4u + (((i5 * 2u) * 4u) + i6))), 2367u)] & 252645135u);
+              uint const v_440 = (*tint_module_vars.y_block)[min(((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)) + (1u + i6)), 2335u)];
+              uint4 const v_441 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_442 = as_type<int4>((uint4(v_439) << v_441));
+              int4 const v_443 = (v_442 >> uint4(24u));
+              uint4 const v_444 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_445 = as_type<int4>((uint4(v_440) << v_444));
+              int const v_446 = tint_dot(v_443, (v_445 >> uint4(24u)));
+              uint const v_447 = ((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + ((4u + (((i5 * 2u) * 4u) + i6)) + 4u)), 2367u)] & 252645135u);
+              uint const v_448 = (*tint_module_vars.y_block)[min(((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)) + (5u + i6)), 2335u)];
+              uint4 const v_449 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_450 = as_type<int4>((uint4(v_447) << v_449));
+              int4 const v_451 = (v_450 >> uint4(24u));
+              uint4 const v_452 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_453 = as_type<int4>((uint4(v_448) << v_452));
+              float const v_454 = float(as_type<int>((as_type<uint>(v_446) + as_type<uint>(tint_dot(v_451, (v_453 >> uint4(24u)))))));
+              float const v_455 = (v_438 * (v_454 * float(select(((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> ((((i5 * 2u) - 4u) * 8u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> (((((i5 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> (((i5 * 2u) * 8u) & 31u)) & 63u), ((i5 * 2u) < 4u)))));
+              float const v_456 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)), 2335u)])).x;
+              uint const v_457 = (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + (4u + (((i5 * 2u) * 4u) + i6))), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_458 = (*tint_module_vars.y_block)[min(((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)) + (1u + i6)), 2335u)];
+              uint4 const v_459 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_460 = as_type<int4>((uint4(v_457) << v_459));
+              int4 const v_461 = (v_460 >> uint4(24u));
+              uint4 const v_462 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_463 = as_type<int4>((uint4(v_458) << v_462));
+              int const v_464 = tint_dot(v_461, (v_463 >> uint4(24u)));
+              uint const v_465 = (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + ((4u + (((i5 * 2u) * 4u) + i6)) + 4u)), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_466 = (*tint_module_vars.y_block)[min(((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)) + (5u + i6)), 2335u)];
+              uint4 const v_467 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_468 = as_type<int4>((uint4(v_465) << v_467));
+              int4 const v_469 = (v_468 >> uint4(24u));
+              uint4 const v_470 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_471 = as_type<int4>((uint4(v_466) << v_470));
+              float const v_472 = float(as_type<int>((as_type<uint>(v_464) + as_type<uint>(tint_dot(v_469, (v_471 >> uint4(24u)))))));
+              float const v_473 = (v_437 * (v_455 + (v_456 * (v_472 * float(select(((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> (((((i5 * 2u) + 1u) - 4u) * 8u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> ((((((i5 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> ((((i5 * 2u) + 1u) * 8u) & 31u)) & 63u), (((i5 * 2u) + 1u) < 4u)))))));
+              float const v_474 = float2(as_type<half2>((*tint_module_vars.x_block)[min(((32u + (local_invocation_id.x & 31u)) * 37u), 2367u)])).y;
+              float const v_475 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)), 2335u)])).x;
+              uint const v_476 = (*tint_module_vars.y_block)[min(((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)) + (1u + i6)), 2335u)];
+              uint4 const v_477 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_478 = as_type<int4>((uint4(16843009u) << v_477));
+              int4 const v_479 = (v_478 >> uint4(24u));
+              uint4 const v_480 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_481 = as_type<int4>((uint4(v_476) << v_480));
+              int const v_482 = tint_dot(v_479, (v_481 >> uint4(24u)));
+              uint const v_483 = (*tint_module_vars.y_block)[min(((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)) + (5u + i6)), 2335u)];
+              uint4 const v_484 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_485 = as_type<int4>((uint4(16843009u) << v_484));
+              int4 const v_486 = (v_485 >> uint4(24u));
+              uint4 const v_487 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_488 = as_type<int4>((uint4(v_483) << v_487));
+              float const v_489 = float(as_type<int>((as_type<uint>(v_482) + as_type<uint>(tint_dot(v_486, (v_488 >> uint4(24u)))))));
+              float const v_490 = (v_475 * (v_489 * float(select(((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> (((((i5 * 2u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> (((((i5 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> (((i5 * 2u) * 8u) & 31u)) & 63u), ((i5 * 2u) < 4u)))));
+              float const v_491 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)), 2335u)])).x;
+              uint const v_492 = (*tint_module_vars.y_block)[min(((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)) + (1u + i6)), 2335u)];
+              uint4 const v_493 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_494 = as_type<int4>((uint4(16843009u) << v_493));
+              int4 const v_495 = (v_494 >> uint4(24u));
+              uint4 const v_496 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_497 = as_type<int4>((uint4(v_492) << v_496));
+              int const v_498 = tint_dot(v_495, (v_497 >> uint4(24u)));
+              uint const v_499 = (*tint_module_vars.y_block)[min(((((16u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)) + (5u + i6)), 2335u)];
+              uint4 const v_500 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_501 = as_type<int4>((uint4(16843009u) << v_500));
+              int4 const v_502 = (v_501 >> uint4(24u));
+              uint4 const v_503 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_504 = as_type<int4>((uint4(v_499) << v_503));
+              float const v_505 = float(as_type<int>((as_type<uint>(v_498) + as_type<uint>(tint_dot(v_502, (v_504 >> uint4(24u)))))));
+              acc_2_1 = (v_436 + (v_473 - (v_474 * (v_490 + (v_491 * (v_505 * float(select(((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> ((((((i5 * 2u) + 1u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> ((((((i5 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> ((((i5 * 2u) + 1u) * 8u) & 31u)) & 63u), (((i5 * 2u) + 1u) < 4u)))))))));
+              float const v_506 = acc_3_1;
+              float const v_507 = float2(as_type<half2>((*tint_module_vars.x_block)[min(((32u + (local_invocation_id.x & 31u)) * 37u), 2367u)])).x;
+              float const v_508 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)), 2335u)])).x;
+              uint const v_509 = ((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + (4u + (((i5 * 2u) * 4u) + i6))), 2367u)] & 252645135u);
+              uint const v_510 = (*tint_module_vars.y_block)[min(((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)) + (1u + i6)), 2335u)];
+              uint4 const v_511 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_512 = as_type<int4>((uint4(v_509) << v_511));
+              int4 const v_513 = (v_512 >> uint4(24u));
+              uint4 const v_514 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_515 = as_type<int4>((uint4(v_510) << v_514));
+              int const v_516 = tint_dot(v_513, (v_515 >> uint4(24u)));
+              uint const v_517 = ((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + ((4u + (((i5 * 2u) * 4u) + i6)) + 4u)), 2367u)] & 252645135u);
+              uint const v_518 = (*tint_module_vars.y_block)[min(((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)) + (5u + i6)), 2335u)];
+              uint4 const v_519 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_520 = as_type<int4>((uint4(v_517) << v_519));
+              int4 const v_521 = (v_520 >> uint4(24u));
+              uint4 const v_522 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_523 = as_type<int4>((uint4(v_518) << v_522));
+              float const v_524 = float(as_type<int>((as_type<uint>(v_516) + as_type<uint>(tint_dot(v_521, (v_523 >> uint4(24u)))))));
+              float const v_525 = (v_508 * (v_524 * float(select(((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> ((((i5 * 2u) - 4u) * 8u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> (((((i5 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> (((i5 * 2u) * 8u) & 31u)) & 63u), ((i5 * 2u) < 4u)))));
+              float const v_526 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)), 2335u)])).x;
+              uint const v_527 = (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + (4u + (((i5 * 2u) * 4u) + i6))), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_528 = (*tint_module_vars.y_block)[min(((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)) + (1u + i6)), 2335u)];
+              uint4 const v_529 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_530 = as_type<int4>((uint4(v_527) << v_529));
+              int4 const v_531 = (v_530 >> uint4(24u));
+              uint4 const v_532 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_533 = as_type<int4>((uint4(v_528) << v_532));
+              int const v_534 = tint_dot(v_531, (v_533 >> uint4(24u)));
+              uint const v_535 = (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + ((4u + (((i5 * 2u) * 4u) + i6)) + 4u)), 2367u)] >> (4u & 31u)) & 252645135u);
+              uint const v_536 = (*tint_module_vars.y_block)[min(((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)) + (5u + i6)), 2335u)];
+              uint4 const v_537 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_538 = as_type<int4>((uint4(v_535) << v_537));
+              int4 const v_539 = (v_538 >> uint4(24u));
+              uint4 const v_540 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_541 = as_type<int4>((uint4(v_536) << v_540));
+              float const v_542 = float(as_type<int>((as_type<uint>(v_534) + as_type<uint>(tint_dot(v_539, (v_541 >> uint4(24u)))))));
+              float const v_543 = (v_507 * (v_525 + (v_526 * (v_542 * float(select(((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> (((((i5 * 2u) + 1u) - 4u) * 8u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> ((((((i5 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 1u), 2367u)] >> ((((i5 * 2u) + 1u) * 8u) & 31u)) & 63u), (((i5 * 2u) + 1u) < 4u)))))));
+              float const v_544 = float2(as_type<half2>((*tint_module_vars.x_block)[min(((32u + (local_invocation_id.x & 31u)) * 37u), 2367u)])).y;
+              float const v_545 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)), 2335u)])).x;
+              uint const v_546 = (*tint_module_vars.y_block)[min(((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)) + (1u + i6)), 2335u)];
+              uint4 const v_547 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_548 = as_type<int4>((uint4(16843009u) << v_547));
+              int4 const v_549 = (v_548 >> uint4(24u));
+              uint4 const v_550 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_551 = as_type<int4>((uint4(v_546) << v_550));
+              int const v_552 = tint_dot(v_549, (v_551 >> uint4(24u)));
+              uint const v_553 = (*tint_module_vars.y_block)[min(((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + ((i5 * 2u) * 9u)) + (5u + i6)), 2335u)];
+              uint4 const v_554 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_555 = as_type<int4>((uint4(16843009u) << v_554));
+              int4 const v_556 = (v_555 >> uint4(24u));
+              uint4 const v_557 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_558 = as_type<int4>((uint4(v_553) << v_557));
+              float const v_559 = float(as_type<int>((as_type<uint>(v_552) + as_type<uint>(tint_dot(v_556, (v_558 >> uint4(24u)))))));
+              float const v_560 = (v_545 * (v_559 * float(select(((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> (((((i5 * 2u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> (((((i5 * 2u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> (((i5 * 2u) * 8u) & 31u)) & 63u), ((i5 * 2u) < 4u)))));
+              float const v_561 = float2(as_type<half2>((*tint_module_vars.y_block)[min((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)), 2335u)])).x;
+              uint const v_562 = (*tint_module_vars.y_block)[min(((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)) + (1u + i6)), 2335u)];
+              uint4 const v_563 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_564 = as_type<int4>((uint4(16843009u) << v_563));
+              int4 const v_565 = (v_564 >> uint4(24u));
+              uint4 const v_566 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_567 = as_type<int4>((uint4(v_562) << v_566));
+              int const v_568 = tint_dot(v_565, (v_567 >> uint4(24u)));
+              uint const v_569 = (*tint_module_vars.y_block)[min(((((24u + (local_invocation_id.x >> (5u & 31u))) * 73u) + (((i5 * 2u) + 1u) * 9u)) + (5u + i6)), 2335u)];
+              uint4 const v_570 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_571 = as_type<int4>((uint4(16843009u) << v_570));
+              int4 const v_572 = (v_571 >> uint4(24u));
+              uint4 const v_573 = uint4(24u, 16u, 8u, 0u);
+              int4 const v_574 = as_type<int4>((uint4(v_569) << v_573));
+              float const v_575 = float(as_type<int>((as_type<uint>(v_568) + as_type<uint>(tint_dot(v_572, (v_574 >> uint4(24u)))))));
+              acc_3_1 = (v_506 + (v_543 - (v_544 * (v_560 + (v_561 * (v_575 * float(select(((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 3u), 2367u)] >> ((((((i5 * 2u) + 1u) - 4u) * 8u) + 4u) & 31u)) & 15u) | ((((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> ((((((i5 * 2u) + 1u) - 4u) * 8u) + 6u) & 31u)) & 3u) << (4u & 31u))), (((*tint_module_vars.x_block)[min((((32u + (local_invocation_id.x & 31u)) * 37u) + 2u), 2367u)] >> ((((i5 * 2u) + 1u) * 8u) & 31u)) & 63u), (((i5 * 2u) + 1u) < 4u)))))))));
+              {
+                i6 = (i6 + 1u);
+              }
+              continue;
+            }
+          }
+          {
+            i5 = (i5 + 1u);
+          }
+          continue;
+        }
+      }
+      threadgroup_barrier(mem_flags::mem_threadgroup);
+      {
+        i0 = (i0 + 1u);
+      }
+      continue;
+    }
+  }
+  if ((((workgroup_id.y * 32u) + (0u + (local_invocation_id.x >> (5u & 31u)))) < 277u)) {
+    (*tint_module_vars.output)[min((((0u + ((workgroup_id.y * 32u) + (0u + (local_invocation_id.x >> (5u & 31u))))) * 2816u) + ((workgroup_id.x * 64u) + (0u + (local_invocation_id.x & 31u)))), 780031u)] = acc_0_0;
+  }
+  if ((((workgroup_id.y * 32u) + (0u + (local_invocation_id.x >> (5u & 31u)))) < 277u)) {
+    (*tint_module_vars.output)[min((((0u + ((workgroup_id.y * 32u) + (0u + (local_invocation_id.x >> (5u & 31u))))) * 2816u) + ((workgroup_id.x * 64u) + (32u + (local_invocation_id.x & 31u)))), 780031u)] = acc_0_1;
+  }
+  if ((((workgroup_id.y * 32u) + (8u + (local_invocation_id.x >> (5u & 31u)))) < 277u)) {
+    (*tint_module_vars.output)[min((((0u + ((workgroup_id.y * 32u) + (8u + (local_invocation_id.x >> (5u & 31u))))) * 2816u) + ((workgroup_id.x * 64u) + (0u + (local_invocation_id.x & 31u)))), 780031u)] = acc_1_0;
+  }
+  if ((((workgroup_id.y * 32u) + (8u + (local_invocation_id.x >> (5u & 31u)))) < 277u)) {
+    (*tint_module_vars.output)[min((((0u + ((workgroup_id.y * 32u) + (8u + (local_invocation_id.x >> (5u & 31u))))) * 2816u) + ((workgroup_id.x * 64u) + (32u + (local_invocation_id.x & 31u)))), 780031u)] = acc_1_1;
+  }
+  if ((((workgroup_id.y * 32u) + (16u + (local_invocation_id.x >> (5u & 31u)))) < 277u)) {
+    (*tint_module_vars.output)[min((((0u + ((workgroup_id.y * 32u) + (16u + (local_invocation_id.x >> (5u & 31u))))) * 2816u) + ((workgroup_id.x * 64u) + (0u + (local_invocation_id.x & 31u)))), 780031u)] = acc_2_0;
+  }
+  if ((((workgroup_id.y * 32u) + (16u + (local_invocation_id.x >> (5u & 31u)))) < 277u)) {
+    (*tint_module_vars.output)[min((((0u + ((workgroup_id.y * 32u) + (16u + (local_invocation_id.x >> (5u & 31u))))) * 2816u) + ((workgroup_id.x * 64u) + (32u + (local_invocation_id.x & 31u)))), 780031u)] = acc_2_1;
+  }
+  if ((((workgroup_id.y * 32u) + (24u + (local_invocation_id.x >> (5u & 31u)))) < 277u)) {
+    (*tint_module_vars.output)[min((((0u + ((workgroup_id.y * 32u) + (24u + (local_invocation_id.x >> (5u & 31u))))) * 2816u) + ((workgroup_id.x * 64u) + (0u + (local_invocation_id.x & 31u)))), 780031u)] = acc_3_0;
+  }
+  if ((((workgroup_id.y * 32u) + (24u + (local_invocation_id.x >> (5u & 31u)))) < 277u)) {
+    (*tint_module_vars.output)[min((((0u + ((workgroup_id.y * 32u) + (24u + (local_invocation_id.x >> (5u & 31u))))) * 2816u) + ((workgroup_id.x * 64u) + (32u + (local_invocation_id.x & 31u)))), 780031u)] = acc_3_1;
+  }
+}
+
+kernel void v_576(uint3 global_invocation_id [[thread_position_in_grid]], uint3 local_invocation_id [[thread_position_in_threadgroup]], uint3 workgroup_id [[threadgroup_position_in_grid]], uint tint_local_index [[thread_index_in_threadgroup]], const device tint_array<uint, 1622016>* weights [[buffer(0)]], const device tint_array<uint, 319104>* input_q8 [[buffer(1)]], device tint_array<float, 780032>* output [[buffer(2)]], threadgroup tint_symbol_2* v_577 [[threadgroup(0)]]) {
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.weights=weights, .input_q8=input_q8, .output=output, .x_block=(&(*v_577).tint_symbol), .y_block=(&(*v_577).tint_symbol_1)};
+  main_inner(global_invocation_id, local_invocation_id, workgroup_id, tint_local_index, tint_module_vars);
+}
