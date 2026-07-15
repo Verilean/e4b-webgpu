@@ -364,3 +364,22 @@ element-wise H values are CLOSE, native decorrelation is somehow bounded
 and Chrome's is anomalous (a real Chrome-side defect remains); if far-but-
 low-mean, distribution shape survives decorrelation natively and Chrome's
 mean inflation is the anomaly to hunt.
+
+## R28 (2026-07-16): H-distribution discriminator + quantizer delta anatomy
+
+- **oh(hesper-fast) vs oh(hesper-strict), element-wise (r-hex from the two
+  traces): corr = 0.9944, median |ΔH| = 0.0014** — native variants are
+  nearly element-wise identical at step 0 despite full fusion differences.
+- **Metric blindness, third strike**: the "clean 2.5e-11" at #14 (quantizer)
+  was a MISMATCHED checksum whose u32 content, float-interpreted, hid the
+  difference. TRUE first divergence = #14 (quantizer output codes).
+- **Int8 delta anatomy of #14 (Chrome vs hesper window)**: 111/4096 bytes
+  (~2.7%), histogram dominated by ±1 (62), few larger (likely scale bytes).
+  The quantizer is faithful — it amplifies upstream f32 FMA noise into
+  boundary flips as designed.
+Mechanism chain now: Chrome-fusion f32 deltas → ±1 Q8 flips (~2-3%) →
+1e-3 matmul deltas → per-layer compounding → decorrelated trajectory.
+OPEN (one number): flip rate for NATIVE fast-vs-strict. If also ~2-3%,
+flips do NOT decorrelate H natively → Chrome H inflation needs another
+cause; if ≪, Chrome's f32 deltas are anomalously large → hunt #13's f32
+delta magnitude. Needs one fast+CKSUM trace regen (~15 min) for fast-c14.

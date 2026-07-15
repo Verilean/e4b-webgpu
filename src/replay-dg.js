@@ -225,6 +225,19 @@ export async function runReplay(dir = "dgtrace", ggufUrl = "model-dg.gguf") {
         }
         if (o.n < 60)
           L(`  [curve] #${o.n} relRMS=${worst.toExponential(1)} binds=${JSON.stringify(lastD.b.map(([n2]) => n2))}`);
+        if (o.n === 14) {
+          // dump Chrome's mid-window bytes of the QUANTIZER output for
+          // offline int8-level delta analysis (metric blindness fix)
+          for (const i of bad) {
+            const [, u] = lastD.b[i];
+            const full = (bufSizes[String(u)] | 0) || 4096;
+            const off = full > 8192 ? Math.floor(full / 2 / 4096) * 4096 : 0;
+            const g = await readbackRange(device, bufs.get(String(u)), off, Math.min(4096, full - off));
+            let hx = "";
+            for (const b of g) hx += b.toString(16).padStart(2, "0");
+            L(`[q14dump buf${i}] ${hx}`);
+          }
+        }
         if (o.n === 15) {
           // bias statistics of the first-diverging matmul: biased (systematic
           // magnitude shift) vs symmetric (fusion noise)
