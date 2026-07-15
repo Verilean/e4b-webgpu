@@ -1,0 +1,15 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>DG replay</title>
+<body>
+<pre id="log">DG trace replayer — see src/replay-dg.js</pre>
+<script type="module">
+import { runReplay } from "./src/replay-dg.js";
+const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => {});
+try {
+  const r = await runReplay();
+  await L(`REPLAY ${r.nBAD === 0 && r.nOK > 0 ? "PASS" : "FAIL"}: ${JSON.stringify(r)}`);
+} catch (e) {
+  await L("REPLAY EXCEPTION: " + (e.stack || e));
+}
+</script>

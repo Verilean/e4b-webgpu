@@ -1,10 +1,11 @@
 // GGUF v3 range-fetch reader (browser). Parses the header once, then fetches
 // tensor data by byte range. Format verified against goldens/gguf_inspect.py.
-export const GGML = { F32: 0, F16: 1, Q4_0: 2, Q8_0: 8, Q6_K: 14, BF16: 30 };
+export const GGML = { F32: 0, F16: 1, Q4_0: 2, Q5_0: 6, Q8_0: 8, Q4_K: 12, Q6_K: 14, BF16: 30 };
 
 const TYPE_SIZES = {           // [blockBytes, blockElems]
   [GGML.F32]: [4, 1], [GGML.F16]: [2, 1], [GGML.BF16]: [2, 1],
-  [GGML.Q4_0]: [18, 32], [GGML.Q8_0]: [34, 32], [GGML.Q6_K]: [210, 256],
+  [GGML.Q4_0]: [18, 32], [GGML.Q5_0]: [22, 32], [GGML.Q8_0]: [34, 32],
+  [GGML.Q4_K]: [144, 256], [GGML.Q6_K]: [210, 256],
 };
 
 export function tensorBytes(t) {
