@@ -448,3 +448,38 @@ difference mid-network ✓ consistent with R30). #1109-1111 integer-buffer relRM
 e-34 = float-blind metric again (routing idxs — need byte compare, strike 4 risk).
 Chrome replay of full step-0 slice completes in minutes (not 40 — earlier fear
 was cksum-readback traces; this one streams).
+
+## R32 (2026-07-16): ROOT CAUSE FOUND — two trace holes (invisible writers), not numerics
+
+Bisect chain that got here: norm outputs (post-RMSNorm) are direction checkpoints
+immune to the amplitude-chaos that blinds raw relRMS. Chrome-vs-fast at norms:
+fine (≤5e-2 abs) through #28 (attn+dense of layer 0), then #43 (post-MoE norm)
+= 22 vs native 2.4e-3 — a 9000× KIND difference. Inside the MoE block: routing
+idxs byte-identical, gate/up+geglu fine (1.5e-2), but wacc (#42, din·wts→acc,
+a PURE guarded gather-sum — no race possible) explodes 2.5e-2 → 19. Pure kernel
++ wrong output ⇒ corrupt INPUT: din (uid …882688) is READ by 90 dispatches
+(30 layers × 3 steps) and **WRITTEN BY NOTHING in the entire ops stream**.
+
+CAUSE 1: hesper's MoE DOWN matmul is hand-MSL gated by DG_NOMSLDOWN — a
+SEPARATE flag from DG_NOMSL (which only covers gate/up). Capture used only
+DG_NOMSL=1 ⇒ the down ran as MSL, invisible to the Dawn-level JSTrace ⇒
+replay/engine consumed the frozen pre-step-0 snapshot of din for every layer,
+every step. Explains everything: layer-0 direction break, per-layer compounding,
+native fast+strict both correct, systematic across seeds.
+
+CAUSE 2 (same class): "tbuf" (SC temperature, array<f32,4>) has no 'w' event
+either (untraced write path); the engine looked for a 4-byte w event and never
+substituted it ⇒ SC softmax ran with stale t.
+
+TOOL PAYOFF: wrote scripts/dgtrace-validate.py (read-but-never-written non-weight
+buffers, WGSL access-mode aware). On the bad trace it flags EXACTLY {din, tbuf}
+after static/dyn filtering. This check is mechanical — run it on every capture
+from now on (added to the protocol). LESSON: a trace is a CLAIM about
+completeness; validate it before debugging numerics — would have saved R20-R31's
+numeric hunt (though that hunt produced the norm-checkpoint method + native-floor
+calibration, both reusable).
+
+FIXES: recapture with DG_NOMSL=1 DG_NOMSLDOWN=1 (audited: no other MSL gates
+default-on); engine discovers tbuf by binding name and writes [prevT,0,0,0]
+per step. NEXT: validate new trace → replay (expect native-floor curve) →
+engine France → "[Pp]aris".

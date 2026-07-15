@@ -106,8 +106,10 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
     for (let i = 0; i < P; i++) promptToks.push(dv.getUint32(i * 4, true)); }
   const scW = wEvents.filter((o) => o.s === C * scK * 4).map((o) => String(o.u)); // [scTok, scProb] in order
   const scTU = scW[0], scPU = scW[1];
-  const sctW = wEvents.find((o) => o.s === 4);
-  const scTempU = sctW ? String(sctW.u) : null;
+  // SC temperature = the "tbuf" binding (array<f32,4>, 16B). It has NO 'w' event in the
+  // trace (hesper writes it via an untraced path) — discover by binding name, engine
+  // writes [prevT,0,0,0] each step (R32: trace-hole class found by dgtrace-validate).
+  const scTempU = uidOf["tbuf"] ?? (() => { const w = wEvents.find((o) => o.s === 4); return w ? String(w.u) : null; })();
   const ebUU = uidOf["uin"], ebPU = uidOf["params"];
   const dynamic = new Set([tokU, scTU, scPU, scTempU, ebUU, ebPU].filter(Boolean));
   L(`engine: P=${P} C=${C} prompt=[${promptToks.slice(0, 6)}…] roles tok=${tokU} scT=${scTU} scP=${scPU} t=${scTempU} u=${ebUU} p=${ebPU}`);
@@ -180,7 +182,7 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
     if (step > 0) {
       dyn.set(scTU, new Uint8Array(scTok.buffer.slice(0)));
       dyn.set(scPU, new Uint8Array(scProb.buffer.slice(0)));
-      if (scTempU) dyn.set(scTempU, new Uint8Array(new Float32Array([prevT]).buffer));
+      if (scTempU) dyn.set(scTempU, new Uint8Array(new Float32Array([prevT, 0, 0, 0]).buffer));
     }
     dyn.set(ebUU, new Uint8Array(uArr.buffer.slice(0)));
     dyn.set(ebPU, new Uint8Array(new Float32Array([tCur, 0, 0, 0]).buffer));
