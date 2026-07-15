@@ -426,3 +426,25 @@ early stop) → which tail dispatch first shows a K I N D-different deviation
 (vs the native ~1-2 decorrelation floor); then read that kernel. Candidates:
 softcap (tanh), slice-copy (mod idiom), ebSampleFullB (workgroup reduction,
 log/exp over 262k).
+
+## R31 (2026-07-16): tail-chain mapping + native tail floor — the final norm SQUASHES decorrelation
+
+Corrections first: step-0 slice = **1426 dispatches** (not ~1138); R30's "lm-head
+region #1130-1137" was WRONG — that's still layer-23 MoE. True tail chain mapped
+from ops.jsonl: #1398 final-norm → #1400-1423 = 8× (lm_head slice matmul a,b,c →
+softcap logits → slice-copy src,dst) → #1424 reduce → #1425 ebSampleFullB.
+
+Native fast-vs-strict tail (offline c-files): mid-network O(10) decorrelation
+**collapses to 7.4e-2 at the final RMSNorm** (#1398), logits ~0.13-0.32, ebSample
+outs 0.105. MECHANISM FOUND: normalization turns trajectory decorrelation into
+bounded direction noise — THIS is why native H correlates 0.994 and decode is
+robust. So the Chrome question sharpens: does Chrome's #1398 also collapse to
+~7e-2? If yes but H still inflates 30×, the defect is INSIDE #1400-1425 (softcap/
+copy/reduce/ebSample). If Chrome's #1398 stays O(1), the defect is upstream but
+must be KIND-different (bias, not noise) to survive normalization.
+
+Also: Chrome-vs-fast #1100-1130 = 7.6-21 vs native 4.0 — same order (no kind
+difference mid-network ✓ consistent with R30). #1109-1111 integer-buffer relRMS
+e-34 = float-blind metric again (routing idxs — need byte compare, strike 4 risk).
+Chrome replay of full step-0 slice completes in minutes (not 40 — earlier fear
+was cksum-readback traces; this one streams).
