@@ -7,7 +7,7 @@
 import { runReplay } from "./src/replay-dg.js";
 const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => {});
 try {
-  const r = await runReplay("dgtrace2");
+  const r = await runReplay("dgtrace");
   await L(`REPLAY ${r.nBAD === 0 && r.nOK > 0 ? "PASS" : "FAIL"}: ${JSON.stringify(r)}`);
 } catch (e) {
   await L("REPLAY EXCEPTION: " + (e.stack || e));

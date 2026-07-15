@@ -156,7 +156,7 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
   };
 
   // ---- scheduler state (hesper L1330-1356) --------------------------------
-  const rng = new Rng(12345);
+  const rng = new Rng(12346);
   const toks = new Uint32Array(P + C);
   toks.set(promptToks);
   for (let i = 0; i < C; i++) toks[P + i] = rng.tok(vocabSize);   // schedEB canvas randomization

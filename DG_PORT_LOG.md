@@ -175,3 +175,23 @@ with healthy accept counts. Step-0 readbacks still differ from golden
 is eos-ish → detok must skip channel-marker eos, not break).
 
 Iteration count this arc so far: 8 engine runs, 4 trace regens.
+
+## R20 (2026-07-15): seed 2×2 — drift theory REJECTED, defect is systematic
+
+| | seed 12345 | seed 12346 |
+|---|---|---|
+| hesper (dp4a) | "Paris" ✓ | "Paris" ✓ |
+| Chrome engine | eos-collapse ("Spectimp{{") | eos-collapse ("cul吐{") |
+
+Chrome falls into the empty-answer attractor on BOTH seeds (canvas → eos at
+position 0 + eos-fill) while hesper is seed-robust. KILLER ARGUMENT against
+the numeric-drift story: hesper's own dp4a↔reg kernel swap is a FAR larger
+numeric change than cross-compiler FMA drift, yet preserves behavior
+("Capital: Paris" vs "The capital ... Paris."). Therefore Chrome computes
+something DIFFERENTLY IN KIND, not just in rounding. Post-R19 trajectory
+health (steps ≥1 meanH matches hesper-class, healthy convergence) says the
+DYNAMICS work; the model is systematically un-confident about the ANSWER
+HEAD (position 0 → eos = "the turn is already over" — misframing signature).
+Unexamined suspects: the full-vocab scan kernels (reduceTopKB /
+ebSampleFullB — they PRODUCE the readbacks; likely subgroup-reduction
+patterns) and the post-R19 trustworthy drift curve (in flight).
