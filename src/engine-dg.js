@@ -282,11 +282,14 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
   }
   const ms = performance.now() - t0;
 
-  // detok (piece concat; ▁ → space), stop at <end_of_turn>=106 / <eos>
+  // detok (piece concat; ▁ → space); log raw ids first, stop at the SECOND
+  // eos-ish token (channel markers may open with one)
+  L(`ids[0:48]: ${Array.from(toks.slice(P, P + 48)).join(",")}`);
   let text = "";
+  let eosSeen = 0;
   for (let i = 0; i < C; i++) {
     const id = toks[P + i];
-    if (id === 106 || id === 1) break;
+    if (id === 106 || id === 1) { if (++eosSeen >= 2) break; continue; }
     text += (vocab[id] ?? "<unk>").replace(/▁/g, " ");
   }
   const pass = /[Pp]aris/.test(text);

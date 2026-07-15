@@ -152,3 +152,26 @@ Kahan-summation router kernel (Chrome-side only). If step-0 oh ≈ golden
 (0.037-class) → cancellation-drift is THE lever and the engine ships a
 compensated router by default; if not → hunt continues with per-position
 H distributions (mean/max metrics hide the shape).
+
+## R19 (2026-07-15): THE UNLOCK — initial state must be PRE-STEP-0
+
+Mid-window checksums (head-only windows had validated ONLY position 0's row
+— R17's metric note, now paid in full) first "showed" garbage (relRMS 5e9) at
+the FIRST dp4a matmul — but its CONSUMER was clean: the "garbage" was the
+window landing in never-read tails of REUSED scratch buffers, where the
+engine's pre-step-2 dumps carry step-1 leftovers that hesper's step 0 never
+had. Same class as R13's lesson, one level deeper: **partial-state dumps
+poison every window comparison and (via truly-read stale state) the step-0
+forward itself.**
+
+Fix: `jsTraceDumpAllRegistry` — dump ALL ~950 registry buffers (24GB) at
+step-0 START (no ref-set needed) = the true pre-step-0 state; engine loads
+these as its initial state.
+
+RESULT: the trajectory CONVERGES for the first time — step 1 meanH 0.41
+(hesper-class 0.35-0.38; was 3.9), descending to 0.06-0.15 by step 35-47
+with healthy accept counts. Step-0 readbacks still differ from golden
+(cross-compiler near-tie routing, expected). Text extraction next (argmax[0]
+is eos-ish → detok must skip channel-marker eos, not break).
+
+Iteration count this arc so far: 8 engine runs, 4 trace regens.
