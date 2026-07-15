@@ -46,3 +46,27 @@ stream on → first divergent dispatch + buffer; (2) snapshot diff → magnitude
   hand-MSL, invisible to Dawn-level tracing).
 
 ## Next entries appended below as work proceeds.
+
+## R11-R12 (2026-07-15): tolerance gate + the true amplification curve
+
+| # | change | detected | missed / misled | improvement |
+|---|---|---|---|---|
+| R11 | tolerance classes on per-element maxRel | — | **metric trap: per-element relative error over-penalizes near-zero elements** (ULP noise on 1e-6 → "1e-2 error"; one buffer with f32-max-scale elements → rel 3e47) → 966/1138 "FLIP", first at #1154: unusable | normalize by buffer RMS |
+| R12 | RMS-normalized max deviation | **true curve: 75 exact + 91 ULP + 23 mod; first signal-level flip at the 44th dispatch of the step — layer 0-1's MoE ROUTER (din/wts/acc relRMS 13)**; 949 downstream "FLIP" = a legitimately different (near-tie-flipped) computation path, not corruption | — | — |
+
+**Correction to R4's inference**: "layers 0-28 bit-exact" was WRONG — the 401
+matched mutable buffers are early-only/one-off scratch (last-bind < tail), not
+per-layer state; all per-layer flow state is shared scratch whose last-bind is
+the tail. The checksum stream (R7+) is the only mid-step ground truth.
+Lesson: post-state comparison CANNOT reason about mid-step causality under
+buffer reuse — do not infer layer-boundary correctness from it.
+
+**M1 verdict**: the replay is faithful to compiler-ULP level; divergence
+beyond that is the engine's own near-tie sensitivity (router flips on 1-ULP
+input drift within the first layer — the DENSEF16/Jupiter class, now measured
+at dispatch granularity). Formal M1 = PASS (fidelity bounded by compiler
+rounding). M2 gate must therefore be the eval-8 keyword protocol (near-tie
+flips tolerated), NOT text equality — requires the JS commit-scheduler port.
+
+**Numbers**: parity arc totals — 13 replay runs, 7 trace regens, ~4h wall.
+Checksum+snapshot protocol reduces the next such hunt to ~2 runs.

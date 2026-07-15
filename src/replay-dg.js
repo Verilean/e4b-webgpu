@@ -142,6 +142,7 @@ export async function runReplay(dir = "dgtrace", ggufUrl = "model-dg.gguf") {
   let enc = device.createCommandEncoder();
   let pass = null;
   let nd = 0, nOK = 0, nBAD = 0, ckOK = 0, ckBAD = 0;
+  let ckULP = 0, ckMOD = 0, ckWorst = 0, ckWorstAt = -1, ckFirstFlip = -1;
   let lastD = null;
   const t1 = performance.now();
   const flushSubmit = () => {
@@ -176,33 +177,48 @@ export async function runReplay(dir = "dgtrace", ggufUrl = "model-dg.gguf") {
         const size = Math.min(4096, (bufSizes[String(u)] | 0) || 4096);
         got.push(fnv32(await readbackRange(device, bufs.get(String(u)), 0, size)));
       }
+      // tolerance gate (M1): classify each mismatch by snapshot maxRel —
+      // ULP-level drift (compiler FMA differences) is EXPECTED across
+      // Dawn/Tint versions; the interesting curve is where drift first
+      // amplifies into a near-tie flip (>1e-2 or integer content changes)
       const bad = o.hs.map((w, i) => (got[i] !== w ? i : null)).filter((x) => x !== null);
       if (bad.length === 0) { ckOK++; }
       else {
-        ckBAD++;
-        L(`CKSUM MISMATCH at dispatch #${o.n} (after ${ckOK} OK) kernel=${lastD.k} ` +
-          `DIFFERING: ${JSON.stringify(bad.map((i) => lastD.b[i][0]))}`);
+        let worst = 0;
         for (const i of bad) {
           const r = await fetch(`${dir}/c${o.n}_${i}.bin`);
-          if (!r.ok) continue;
+          if (!r.ok) { worst = Infinity; continue; }
           const want = new Uint8Array(await r.arrayBuffer());
           const [, u] = lastD.b[i];
           const size = Math.min(4096, (bufSizes[String(u)] | 0) || 4096);
           const g = await readbackRange(device, bufs.get(String(u)), 0, size);
-          let nd2 = 0, first = -1;
-          for (let j = 0; j < want.length; j++) if (g[j] !== want[j]) { if (first < 0) first = j; nd2++; }
           const gf = new Float32Array(g.buffer, 0, size >> 2);
           const wf = new Float32Array(new Uint8Array(want).buffer, 0, size >> 2);
-          let maxRel = 0;
+          // RMS-normalized max deviation: plain per-element relative error
+          // over-penalizes near-zero elements (ULP noise on 1e-6 reads as
+          // 1e-2 "error"); normalizing by the buffer's own RMS classifies
+          // by how much the SIGNAL moved
+          let rms = 0, n2 = 0, maxAbs = 0;
           for (let j = 0; j < wf.length; j++) {
-            const d2 = Math.abs(gf[j] - wf[j]) / Math.max(1e-9, Math.abs(wf[j]));
-            if (Number.isFinite(d2) && d2 > maxRel) maxRel = d2;
+            if (!Number.isFinite(wf[j]) || !Number.isFinite(gf[j])) continue;
+            rms += wf[j] * wf[j]; n2++;
+            const d2 = Math.abs(gf[j] - wf[j]);
+            if (d2 > maxAbs) maxAbs = d2;
           }
-          const j0 = first >> 2;
-          L(`  buf[${i}] ${lastD.b[i][0]}: ${nd2}/${want.length} bytes differ, first@${first}, ` +
-            `maxRel=${maxRel.toExponential(2)}; f32[${j0}] got=${gf[j0]} want=${wf[j0]}`);
+          rms = Math.sqrt(rms / Math.max(1, n2));
+          const relRMS = maxAbs / Math.max(1e-9, rms);
+          if (relRMS > worst) worst = relRMS;
         }
-        if (ckBAD >= 4) { L("aborting after 4 checksum mismatches"); break; }
+        if (worst <= 1e-5) ckULP++;
+        else if (worst <= 1e-2) ckMOD++;
+        else {
+          ckBAD++;
+          if (ckFirstFlip < 0) ckFirstFlip = o.n;
+          if (ckBAD <= 3)
+            L(`FLIP at dispatch #${o.n} kernel=${lastD.k} maxRel=${worst.toExponential(1)} ` +
+              `binds=${JSON.stringify(lastD.b.map(([n2]) => n2))}`);
+        }
+        if (worst > ckWorst) { ckWorst = worst; ckWorstAt = o.n; }
       }
     } else if (o.t === "f") {
       flushSubmit();
@@ -227,7 +243,10 @@ export async function runReplay(dir = "dgtrace", ggufUrl = "model-dg.gguf") {
   await device.queue.onSubmittedWorkDone();
   const ms = performance.now() - t1;
   L(`replay done: ${nd} dispatches in ${ms.toFixed(0)}ms | readback gate: ${nOK} OK, ${nBAD} MISMATCH` +
-    (ckOK + ckBAD > 0 ? ` | cksum: ${ckOK} OK, ${ckBAD} BAD` : ""));
+    (ckOK + ckULP + ckMOD + ckBAD > 0
+      ? ` | cksum: ${ckOK} exact, ${ckULP} ULP(≤1e-5), ${ckMOD} mod(≤1e-2), ${ckBAD} FLIP; ` +
+        `worst ${ckWorst.toExponential(1)}@#${ckWorstAt}, first flip @#${ckFirstFlip}`
+      : ""));
 
   // localization: compare every non-tensor buffer against the post-state
   // dump; the FIRST diverging buffer in dispatch order = the first bad kernel
