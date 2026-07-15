@@ -291,3 +291,26 @@ Remaining suspects (ranked):
 
 Iteration count total: 15 engine/replay runs today on this hunt; 9 trace
 regens; 11 hypotheses eliminated with evidence.
+
+## R25 (2026-07-15): read-checker ships; k15 fully in-bounds; final hypothesis
+
+Implemented OOB-READ detection in wgsl-check (v1.1: reads clamp on old Tint
+vs predicate-to-zero on newer robustness = silent cross-compiler VALUE
+divergence — the deferred read class, now live; fixtures still 3 FAIL).
+DG manifest re-check: **k15 = ok (stores AND reads in-bounds)** → the
+clamp-vs-predication OOB theory is dead for k15.
+
+SURVIVING HYPOTHESIS (consistent with every observation): both hesper and
+Chrome compile fastMath, but the newer Tint backend emits structurally
+different (semantically equal) MSL whose temporaries change the METAL
+compiler's FMA-fusion choices; on cancellation-heavy accumulations this
+yields data-locked ~1e-3 deviations. Fusion is invisible in MSL text
+(explains R23's null diff), data-locked (R24), and differs from BOTH hesper
+modes (strict=unfused ≠ fast-fused-A ≠ fast-fused-B).
+
+Consequence if true: kernel-level value parity across Tint versions is
+IRREDUCIBLE; M2a must make the DECODE robust instead:
+(a) more seeds (n=2 may be luck) — pending; (b) schedule robustness for
+lower step-0 confidence (ebBound/anneal tuning on the Chrome side);
+(c) cancellation hardening (Kahan) in the ROUTER to stabilize top-8
+near-ties against any compiler's fusion choices.
