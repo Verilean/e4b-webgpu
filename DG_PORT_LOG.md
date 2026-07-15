@@ -504,3 +504,28 @@ direction diffing, native-floor calibration, marker-sliced replay harness.
 Perf note: 56.7s/step in Chrome (verbatim per-dispatch replay, no batching/
 caching) — correctness first; perf campaign is next (M2b eval-8, then ternary/
 schedule/delta-prop toward the 250-400 tok/s targets).
+
+## R34 (2026-07-16): Chrome 57.2s → 2.27s/step (25×) — one kernel class was 96% of the time
+
+Phase timing (added enc/gpu/rb instrumentation + single-compute-pass encoding):
+enc 1-4ms, rb 14ms, gpu 56.8s ⇒ pure kernel time, orchestration innocent.
+timestamp-query per-dispatch profile (step 1): **13 dispatches × 4.21s = 54.7s of
+56.7s** — all one kernel class: block-parallel fusedQ6KBatchKernel (Q6_K bmm,
+2816→2048, the 13 Q6_K layers). Pathologies: 11/256 active threads AND a 530KB
+un-CSE'd WGSL body (manual-f16-decode expression duplicated per use — the known
+ShaderM let-substitution disease). Native Metal absorbs it (~100ms); Chrome's
+July Tint does not (~40×).
+
+FIX: DG_Q6KWARP=1 (hesper, flag-gated) — swap to the existing warp-per-row
+fusedQ6KBatchF32WarpKernel. Native France: text answer identical ("The capital
+of France is Paris."), native itself -0.9s/step (3974→3058ms). Recaptured trace
+(0 holes), engine:
+
+  ENGINE PASS: 2267ms/step (was 57156) | gpu 2.1s | text: …Paris. ✓
+  Chrome now BEATS native same-config (3058ms) by 26%.
+
+TPS now: canvas 256/13.6s = 18.8 tok/s; useful 45/13.6 ≈ 3.3 tok/s.
+New profile is flat (top 195ms n=1, then ≤124ms) — no single villain left.
+NEXT (step ②): optimal-config trace — drop DG_NOMOERB/DG_NOQKVRB (reg WMMA +
+grouped MoE, all WGSL), keep DG_NOMSL(+DOWN)=1 + DG_Q6KWARP=1. Risk: Chrome's
+chromium-experimental-subgroup-matrix syntax drift vs hesper's May Dawn.

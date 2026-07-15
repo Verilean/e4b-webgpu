@@ -17,7 +17,7 @@ async function initDeviceBig(maxBuf) {
   if (!adapter) throw new Error("no WebGPU adapter");
   const need = Math.max(maxBuf, 1 << 28);
   const device = await adapter.requestDevice({
-    requiredFeatures: ["subgroups", "shader-f16", "chromium-experimental-subgroup-matrix"]
+    requiredFeatures: ["subgroups", "shader-f16", "chromium-experimental-subgroup-matrix", "timestamp-query"]
       .filter((f) => adapter.features.has(f)),
     requiredLimits: {
       maxStorageBufferBindingSize: Math.min(need, adapter.limits.maxStorageBufferBindingSize),
@@ -157,6 +157,18 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
     return bg;
   };
 
+  // ---- kernel GPU profiling (?prof=1): per-dispatch pass timestamps -------
+  const prof = opts.prof && device.features.has("timestamp-query");
+  let qs = null, qResolve = null, qRead = null, profAgg = null, profKn = null;
+  const QMAX = 4096;
+  if (prof) {
+    qs = device.createQuerySet({ type: "timestamp", count: QMAX });
+    qResolve = device.createBuffer({ size: QMAX * 8, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC });
+    qRead = device.createBuffer({ size: QMAX * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    profAgg = new Map();   // kernel hash -> [totalNs, count]
+    profKn = [];           // query slot pair index -> kernel hash
+  }
+
   // ---- scheduler state (hesper L1330-1356) --------------------------------
   const rng = new Rng(opts.seed ?? 12345);
   const toks = new Uint32Array(P + C);
@@ -188,8 +200,11 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
     dyn.set(ebPU, new Uint8Array(new Float32Array([tCur, 0, 0, 0]).buffer));
 
     let enc = device.createCommandEncoder();
-    let lastD = null, s0diverged = 0, nSinceSubmit = 0;
-    const flush = () => { device.queue.submit([enc.finish()]); enc = device.createCommandEncoder(); };
+    let lastD = null, s0diverged = 0;
+    let pass = null, nSubmits = 0, nDisp = 0;
+    const tEnc0 = performance.now();
+    const endPass = () => { if (pass) { pass.end(); pass = null; } };
+    const flush = () => { endPass(); device.queue.submit([enc.finish()]); nSubmits++; enc = device.createCommandEncoder(); };
     for (const o of (step === 0 ? stream0 : streamN)) {
       if (o.t === "w" && o.hex) {
         flush();
@@ -202,17 +217,29 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
           device.queue.writeBuffer(bufs.get(u), o.o, data, 0, data.byteLength & ~3);
         }
       } else if (o.t === "d") {
-        const pass = enc.beginComputePass();
-        pass.setPipeline(pipes.get(o.k));
-        pass.setBindGroup(0, bgFor(o));
-        pass.dispatchWorkgroups(o.g[0], o.g[1], o.g[2]);
-        pass.end();
+        if (prof && step === 1 && profKn.length * 2 + 2 <= QMAX) {
+          // per-dispatch pass with begin/end timestamps (profiled step only)
+          endPass();
+          const qi = profKn.length * 2;
+          profKn.push(o.k);
+          const p2 = enc.beginComputePass({ timestampWrites: {
+            querySet: qs, beginningOfPassWriteIndex: qi, endOfPassWriteIndex: qi + 1 } });
+          p2.setPipeline(pipes.get(o.k));
+          p2.setBindGroup(0, bgFor(o));
+          p2.dispatchWorkgroups(o.g[0], o.g[1], o.g[2]);
+          p2.end();
+        } else {
+          // one long compute pass: WebGPU guarantees hazard ordering between
+          // dispatches in a pass — no per-dispatch pass/encoder churn
+          if (!pass) pass = enc.beginComputePass();
+          pass.setPipeline(pipes.get(o.k));
+          pass.setBindGroup(0, bgFor(o));
+          pass.dispatchWorkgroups(o.g[0], o.g[1], o.g[2]);
+        }
+        nDisp++;
         lastD = o;
       } else if (o.t === "f") {
-        // hesper's flush markers exist for ITS Dawn's barrier-at-scale bug;
-        // WebGPU queue ordering makes them redundant here, and the cksum-mode
-        // trace has one per dispatch (~1456/step → 50s/step). Batch instead.
-        if (++nSinceSubmit > 200) { flush(); nSinceSubmit = 0; }
+        // hesper's flush markers target ITS Dawn's barrier bug; redundant here
       }
       else if (o.t === "c" && step === 0 && lastD && opts.debug) {
         // per-dispatch golden (hesper snapshots): find the FIRST diverging
@@ -231,8 +258,31 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
       }
       // 'r' events: skipped — the scheduler reads its role buffers below
     }
+    if (prof && step === 1 && profKn.length) {
+      endPass();
+      enc.resolveQuerySet(qs, 0, profKn.length * 2, qResolve, 0);
+      enc.copyBufferToBuffer(qResolve, 0, qRead, 0, profKn.length * 16);
+    }
     flush();
+    const tEnc = performance.now() - tEnc0;
     await device.queue.onSubmittedWorkDone();
+    if (prof && step === 1 && profKn.length) {
+      await qRead.mapAsync(GPUMapMode.READ);
+      const ts = new BigUint64Array(qRead.getMappedRange().slice(0));
+      qRead.unmap();
+      for (let i = 0; i < profKn.length; i++) {
+        const ns = Number(ts[i * 2 + 1] - ts[i * 2]);
+        const a = profAgg.get(profKn[i]) ?? [0, 0];
+        a[0] += ns; a[1]++; profAgg.set(profKn[i], a);
+      }
+      const top = [...profAgg.entries()].sort((x, y) => y[1][0] - x[1][0]).slice(0, 18);
+      let tot = 0; for (const [, [ns]] of profAgg) tot += ns;
+      L(`[prof] step1 GPU total=${(tot / 1e6).toFixed(0)}ms over ${profKn.length} dispatches`);
+      for (const [k, [ns, n]] of top)
+        L(`[prof]  k${String(k).slice(0, 10)}… ${(ns / 1e6).toFixed(1)}ms  n=${n}  avg=${(ns / 1e6 / n).toFixed(2)}ms`);
+    }
+    const tGpu = performance.now() - tEnc0 - tEnc;
+    const tRb0 = performance.now();
 
     // readbacks (roles)
     const rd32 = async (name, n) =>
@@ -284,7 +334,7 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
     const meanH = entSum / C;
     effSteps++;
     finished = (held >= ebStab && meanH < ebConfTh) || step + 1 >= S;
-    L(`step ${step}: acc=${nAcc} chg=${prevArgmax ? nChanged : "-"} meanH=${meanH.toFixed(4)} t=${tCur.toFixed(3)}${finished ? " | STOP" : ""}`);
+    L(`step ${step}: acc=${nAcc} chg=${prevArgmax ? nChanged : "-"} meanH=${meanH.toFixed(4)} t=${tCur.toFixed(3)} | enc=${tEnc.toFixed(0)}ms gpu=${tGpu.toFixed(0)}ms rb=${(performance.now() - tRb0).toFixed(0)}ms disp=${nDisp} sub=${nSubmits}${finished ? " | STOP" : ""}`);
     if (finished) for (let i = 0; i < C; i++) toks[P + i] = amax[i];
   }
   const ms = performance.now() - t0;

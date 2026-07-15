@@ -223,7 +223,7 @@ export async function runReplay(dir = "dgtrace", ggufUrl = "model-dg.gguf") {
             L(`FLIP at dispatch #${o.n} kernel=${lastD.k} maxRel=${worst.toExponential(1)} ` +
               `binds=${JSON.stringify(lastD.b.map(([n2]) => n2))}`);
         }
-        if (o.n < 60)
+        if (true)
           L(`  [curve] #${o.n} relRMS=${worst.toExponential(1)} binds=${JSON.stringify(lastD.b.map(([n2]) => n2))}`);
         if (o.n === 14) {
           // dump Chrome's mid-window bytes of the QUANTIZER output for
@@ -262,7 +262,7 @@ export async function runReplay(dir = "dgtrace", ggufUrl = "model-dg.gguf") {
             L(`  [bias#15 buf${i}] n=${n2} meanW=${(sw/n2).toExponential(2)} meanDiff=${(sd/n2).toExponential(2)} meanAbsDiff=${(sad/n2).toExponential(2)} biasRatio=${(sd/Math.max(sad,1e-30)).toFixed(3)} |d|@small=${(smallD/Math.max(smallN,1)).toExponential(2)}(n=${smallN}) |d|@big=${(bigD/Math.max(bigN,1)).toExponential(2)}(n=${bigN})`);
           }
         }
-        if (o.n > 20) { L("early stop after #20 (bias probe mode)"); break; }
+        if (o.n > 1425) { L("early stop after #1425 (lm-head tail mode)"); break; }
         if (worst > ckWorst) { ckWorst = worst; ckWorstAt = o.n; }
       }
     } else if (o.t === "f") {
