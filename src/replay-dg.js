@@ -218,6 +218,8 @@ export async function runReplay(dir = "dgtrace", ggufUrl = "model-dg.gguf") {
             L(`FLIP at dispatch #${o.n} kernel=${lastD.k} maxRel=${worst.toExponential(1)} ` +
               `binds=${JSON.stringify(lastD.b.map(([n2]) => n2))}`);
         }
+        if (o.n < 60)
+          L(`  [curve] #${o.n} relRMS=${worst.toExponential(1)} binds=${JSON.stringify(lastD.b.map(([n2]) => n2))}`);
         if (worst > ckWorst) { ckWorst = worst; ckWorstAt = o.n; }
       }
     } else if (o.t === "f") {

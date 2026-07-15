@@ -1,0 +1,10 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>DG engine</title>
+<body>
+<pre>DG trace-replay engine — src/engine-dg.js</pre>
+<script type="module">
+import { runEngine } from "./src/engine-dg.js";
+const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => {});
+try { await runEngine(); } catch (e) { await L("ENGINE EXCEPTION: " + (e.stack || e)); }
+</script>

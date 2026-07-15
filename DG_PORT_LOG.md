@@ -104,3 +104,26 @@ Open risks (log when resolved): step-0 stream shape differs from the traced
 step-2 (SC writes skipped; zero-init equivalence assumed); ebU regeneration
 must preserve the LCG stream POSITION (rng state at step start depends on
 draws in prior steps — count draws per step: C pre-draws + rejects).
+
+## R13-R17 (2026-07-15): M2a scheduler port + the step-0 confidence gap
+
+hesper golden: step 0 = acc=141 / meanH=0.636 / oh[0]=0.037; engine: acc=1 /
+meanH=4.09 / oh[0]=1.09 — same top-1 token, top-1 prob 0.9999→0.595:
+a systematic ~20× logit-confidence muting on Chrome.
+
+| # | change / probe | detected | missed / misled | improvement |
+|---|---|---|---|---|
+| R13 | zero SC buffers at init | no effect (bit-identical meanH) | assumed SC state was read at step 0 — it is NOT (SC ops absent from the step-0 stream) | check the stream before theorizing about state |
+| R14 | 3-step marker-sliced trace (step-0 stream ≠ step-2 stream: SC only runs step>0) | structural fix, correct in itself | only 4.29→4.09 — not the main cause | streams per step-shape now standard in the trace |
+| R15 | recorded step-0 hex vs my LCG | **canvas + uArr BIT-IDENTICAL** (BigInt LCG port exact) | — | recorded w-hex doubles as an input golden |
+| R16 | step-0 readback goldens (r-hex in trace) | muting is GPU-side, systematic, deterministic across runs (not a race) | — | r-hex = free per-step gate |
+| R17 | per-dispatch drift curve (relRMS, first 60) | smooth f16-accumulation growth 1e-7→1e-3 (#0-30, WMMA class), then ONE explosion #32 MoE down+acc (1.5e-2→13) | float-RMS metric is blind to INTEGER buffers (idxs) — routing flips invisible | metric TODO: integer-aware compare for idx buffers |
+
+Open hypotheses (bisect running): (A) cross-compiler f16-WMMA accumulation
+drift (legit per spec) flips router near-ties EVERY layer → 30 layers of
+semi-random expert paths → muted logits; (B) a deterministic semantic
+difference on Chrome in the grouped-MoE chain (counting-sort/scatter — the
+same stores wgsl-check flags as data-dependent WARNs). Discriminator in
+flight: DG_NOMOERB=1 DG_NOQKVRB=1 trace (no subgroup-matrix, per-slot MoE)
+replayed on Chrome — if step-0 goldens then match ≈exactly, the reg/grouped
+class is the culprit; if still muted, suspicion moves to dp4a/warp/atomics.
