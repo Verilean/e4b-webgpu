@@ -70,3 +70,37 @@ flips tolerated), NOT text equality — requires the JS commit-scheduler port.
 
 **Numbers**: parity arc totals — 13 replay runs, 7 trace regens, ~4h wall.
 Checksum+snapshot protocol reduces the next such hunt to ~2 runs.
+
+## M2a plan (2026-07-15, scoped) — France-only text parity in Chrome
+
+Scope decision: kernels bake the canvas length N as template constants, so
+one trace serves ONE prompt length. M2a = France text parity on the existing
+trace; eval-8 = M2b (needs role-mapped buffers / per-length kernel sets —
+i.e. the real engine step).
+
+Port inventory (source: hesper Examples/DiffusionGemmaDecode.lean):
+- Scheduler = renoise/eb mode (the default; "eb acc=" lines). Per step:
+  1. dynamic 'w' writes, identified by ROLE (binding names in the stream):
+     token_ids=canvas, scTok/scProb (skip step 0), scT (annealed prev t),
+     uin=ebU (C pre-drawn uniforms), params=ebP ([tCur,0,0,0]).
+  2. replay the traced dispatch stream (fixed shapes).
+  3. readbacks: reduceTopK (odenom/otok/oprob) + ebSampleFullB
+     (oamax/osamp/oh per position).
+  4. CPU (lines ~2000-2100): PCG64 LCG rng (mul 6364136223846793005, inc
+     1442695040888963407; u=(rng>>11)/2^53 — BigInt in JS, bit-exact),
+     entropy-ordered acceptance under the MI bound (ebBound), renoise
+     rejected positions with random tokens, canvas←argmax on finish,
+     stability stop (ebHeld ≥ ebStab && meanH < ebConfTh), anneal tCur
+     (0.8 → …/24 steps seen: t=0.8, 0.7917 …), scTok←ktokFlat,
+     scProb←qFlat (STILL TO PIN DOWN in renoise mode: qFlat provenance —
+     read lines 1950-2005), trim/EOS (lines ~2100-2175), canvas init +
+     template + P/prompt layout (lines ~1420-1520).
+- Detok: DG_DUMP_VOCAB=<file> (new hesper flag) → vocab.json (262,144
+  pieces) + JS piece-concat (▁→space; check <0xXX> byte pieces).
+- Gate: decoded France text vs hesper's ("The capital of France is Paris."
+  + thought-channel tail), near-tie drift tolerated at the wording level,
+  keyword = [Pp]aris.
+Open risks (log when resolved): step-0 stream shape differs from the traced
+step-2 (SC writes skipped; zero-init equivalence assumed); ebU regeneration
+must preserve the LCG stream POSITION (rng state at step start depends on
+draws in prior steps — count draws per step: C pre-draws + rejects).
