@@ -529,3 +529,21 @@ New profile is flat (top 195ms n=1, then ≤124ms) — no single villain left.
 NEXT (step ②): optimal-config trace — drop DG_NOMOERB/DG_NOQKVRB (reg WMMA +
 grouped MoE, all WGSL), keep DG_NOMSL(+DOWN)=1 + DG_Q6KWARP=1. Risk: Chrome's
 chromium-experimental-subgroup-matrix syntax drift vs hesper's May Dawn.
+
+## R35 (2026-07-16): optimal-config trace on Chrome — WMMA works, 2163ms/step, near-native parity
+
+Captured the reg-kernel config (DG_NOMSL=1 DG_NOMSLDOWN=1 DG_Q6KWARP=1, all
+other defaults = QKVRB WMMA + grouped MoE, all-WGSL): native 2576ms/step traced
+(text Paris ✓), 0 holes. Chrome: **ENGINE PASS 2163ms/step, Paris ✓** —
+chromium-experimental-subgroup-matrix kernels run fine on Chrome 150 (no syntax
+drift). Chrome ≈ 1.2-1.3× native untraced (~1700ms), and BEATS its own traced
+native run.
+
+TPS ladder (Chrome, France): 0.13 → 3.3 → **3.5 useful tok/s** (canvas 19.7).
+Session total: 57156 → 2163 ms/step = **26.4×**.
+
+Remaining profile (flat): grouped MoE gate/up reg 23ms×30=690ms (2× native
+per-layer — Chrome WMMA slower), one 198ms a,b,c WMMA (n=1, near step head),
+long tail ≤3.8ms. Next levers are the REAL perf campaign (③): fewer eff-steps
+(schedule/CONF), ternary/delta-prop kernel work, committed-caching — targets
+llama.cpp 64 tok/s then beyond.
