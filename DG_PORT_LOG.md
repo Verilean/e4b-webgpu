@@ -383,3 +383,24 @@ OPEN (one number): flip rate for NATIVE fast-vs-strict. If also ~2-3%,
 flips do NOT decorrelate H natively → Chrome H inflation needs another
 cause; if ≪, Chrome's f32 deltas are anomalously large → hunt #13's f32
 delta magnitude. Needs one fast+CKSUM trace regen (~15 min) for fast-c14.
+
+## R29 (2026-07-16): BASELINE CONTAMINATION discovered
+
+Native fast-vs-strict quantizer codes: **111/4096 (2.71%), histogram
+(-1:43, 1:17, -2:7, 2:6, -4:6, -6:3) — nearly BYTE-IDENTICAL to the
+"Chrome-vs-hesper" measurement (111/4096, -1:44, 1:18, …)**. Since
+(Chrome vs strict) ≈ (fast vs strict), CHROME ≈ HESPER-FAST at the layer-0
+quantizer. ⇒ Every measurement since R24 that used the STRICT trace as
+reference (bias probe, #15 4.8e-3, q14 dump) was dominated by the
+fast-vs-strict delta, NOT by a Chrome anomaly.
+
+**LESSON (hygiene): when regenerating a reference trace with a changed
+config (strict), every downstream comparison silently changes its baseline.
+Reference traces must be labeled with their config and comparisons must
+state their baseline.**
+
+Re-baselining now: fresh FAST trace (dumps+cksums) + Chrome curve → the
+TRUE Chrome-vs-fast first divergence. Earlier fast-baseline evidence
+(R16-R20: oh 30× off, collapse) still stands — Chrome ≠ fast SOMEWHERE,
+but possibly much later/narrower than the recent strict-contaminated
+measurements suggested.
