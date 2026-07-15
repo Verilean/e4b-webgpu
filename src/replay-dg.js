@@ -5,6 +5,12 @@ import { openGGUF, tensorBytes } from "./gguf.js";
 
 const L = (m) => { console.log(m); return fetch("/log", { method: "POST", body: String(m) }).catch(() => {}); };
 
+const fnv32 = (u8) => {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < u8.length; i++) { h ^= u8[i]; h = Math.imul(h, 16777619); }
+  return h >>> 0;
+};
+
 function hexToBytes(hex) {
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
@@ -87,27 +93,25 @@ export async function runReplay(dir = "dgtrace", ggufUrl = "model-dg.gguf") {
       size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC }));
   }
 
-  // 2. contents: GGUF-provenance tensors by range, everything else from .bin dumps
+  // 2. contents: .bin dumps are AUTHORITATIVE (exact bytes of hesper's
+  // buffers); GGUF ranges only as fallback for uids without a dump
   const gguf = await openGGUF(ggufUrl);
-  let loaded = 0;
-  for (const [u, name] of Object.entries(tensors)) {
-    if (!ref.has(u)) continue;
-    const t = gguf.tensors[name];
-    if (!t) { L(`WARN tensor ${name} not in GGUF`); continue; }
-    const off = gguf.dataStart + t.offset;
-    const r = await fetch(ggufUrl, { headers: { Range: `bytes=${off}-${off + tensorBytes(t) - 1}` } });
-    const data = await r.arrayBuffer();
-    device.queue.writeBuffer(bufs.get(u), 0, data, 0, data.byteLength & ~3);
-    loaded += data.byteLength;
-  }
-  L(`gguf tensors loaded: ${(loaded / 1e9).toFixed(1)}GB`);
-  loaded = 0;
   const tset = new Set(Object.keys(tensors));
+  let loaded = 0, viaGguf = 0;
   for (const u of ref) {
-    if (tset.has(u)) continue;
-    loaded += await fetchInto(device, bufs.get(u), `${dir}/b${u}.bin`).catch(() => 0);
+    const n = await fetchInto(device, bufs.get(u), `${dir}/b${u}.bin`).catch(() => 0);
+    if (n > 0) { loaded += n; continue; }
+    if (tset.has(u)) {
+      const t = gguf.tensors[tensors[u]];
+      if (!t) { L(`WARN tensor ${tensors[u]} not in GGUF`); continue; }
+      const off = gguf.dataStart + t.offset;
+      const r = await fetch(ggufUrl, { headers: { Range: `bytes=${off}-${off + tensorBytes(t) - 1}` } });
+      const data = await r.arrayBuffer();
+      device.queue.writeBuffer(bufs.get(u), 0, data, 0, data.byteLength & ~3);
+      viaGguf += data.byteLength;
+    }
   }
-  L(`derived .bin loaded: ${(loaded / 1e9).toFixed(1)}GB (t+${((performance.now() - t00) / 1000).toFixed(0)}s)`);
+  L(`loaded: ${(loaded / 1e9).toFixed(1)}GB from dumps + ${(viaGguf / 1e9).toFixed(1)}GB via GGUF (t+${((performance.now() - t00) / 1000).toFixed(0)}s)`);
 
   // 3. pipelines (async compile, all in parallel)
   const kids = [...new Set(ops.filter((o) => o.t === "d").map((o) => o.k))];
@@ -137,7 +141,8 @@ export async function runReplay(dir = "dgtrace", ggufUrl = "model-dg.gguf") {
   };
   let enc = device.createCommandEncoder();
   let pass = null;
-  let nd = 0, nOK = 0, nBAD = 0;
+  let nd = 0, nOK = 0, nBAD = 0, ckOK = 0, ckBAD = 0;
+  let lastD = null;
   const t1 = performance.now();
   const flushSubmit = () => {
     if (pass) { pass.end(); pass = null; }
@@ -151,11 +156,54 @@ export async function runReplay(dir = "dgtrace", ggufUrl = "model-dg.gguf") {
       const data = hexToBytes(o.hex);
       device.queue.writeBuffer(bufs.get(String(o.u)), o.o, data, 0, data.byteLength & ~3);
     } else if (o.t === "d") {
-      if (!pass) pass = enc.beginComputePass();
+      // ONE PASS PER DISPATCH — matching hesper's bridge.cpp exactly. Dawn on
+      // Metal is known (our own bug ledger) to drop inter-dispatch barriers
+      // at scale inside a large encoder; packing hundreds of dispatches into
+      // one pass reproduced a tail-only divergence here.
+      pass = enc.beginComputePass();
       pass.setPipeline(pipes.get(o.k));
       pass.setBindGroup(0, bgFor(o));
       pass.dispatchWorkgroups(o.g[0], o.g[1], o.g[2]);
+      pass.end(); pass = null;
+      lastD = o;
       nd++;
+    } else if (o.t === "c") {
+      // per-dispatch checksum stream (DG_TRACE_JS_CKSUM): mirror hesper's
+      // XOR of per-buffer FNV32 over each bound buffer's first 4KB
+      flushSubmit();
+      const got = [];
+      for (const [, u] of lastD.b) {
+        const size = Math.min(4096, (bufSizes[String(u)] | 0) || 4096);
+        got.push(fnv32(await readbackRange(device, bufs.get(String(u)), 0, size)));
+      }
+      const bad = o.hs.map((w, i) => (got[i] !== w ? i : null)).filter((x) => x !== null);
+      if (bad.length === 0) { ckOK++; }
+      else {
+        ckBAD++;
+        L(`CKSUM MISMATCH at dispatch #${o.n} (after ${ckOK} OK) kernel=${lastD.k} ` +
+          `DIFFERING: ${JSON.stringify(bad.map((i) => lastD.b[i][0]))}`);
+        for (const i of bad) {
+          const r = await fetch(`${dir}/c${o.n}_${i}.bin`);
+          if (!r.ok) continue;
+          const want = new Uint8Array(await r.arrayBuffer());
+          const [, u] = lastD.b[i];
+          const size = Math.min(4096, (bufSizes[String(u)] | 0) || 4096);
+          const g = await readbackRange(device, bufs.get(String(u)), 0, size);
+          let nd2 = 0, first = -1;
+          for (let j = 0; j < want.length; j++) if (g[j] !== want[j]) { if (first < 0) first = j; nd2++; }
+          const gf = new Float32Array(g.buffer, 0, size >> 2);
+          const wf = new Float32Array(new Uint8Array(want).buffer, 0, size >> 2);
+          let maxRel = 0;
+          for (let j = 0; j < wf.length; j++) {
+            const d2 = Math.abs(gf[j] - wf[j]) / Math.max(1e-9, Math.abs(wf[j]));
+            if (Number.isFinite(d2) && d2 > maxRel) maxRel = d2;
+          }
+          const j0 = first >> 2;
+          L(`  buf[${i}] ${lastD.b[i][0]}: ${nd2}/${want.length} bytes differ, first@${first}, ` +
+            `maxRel=${maxRel.toExponential(2)}; f32[${j0}] got=${gf[j0]} want=${wf[j0]}`);
+        }
+        if (ckBAD >= 4) { L("aborting after 4 checksum mismatches"); break; }
+      }
     } else if (o.t === "f") {
       flushSubmit();
     } else if (o.t === "r") {
@@ -178,7 +226,8 @@ export async function runReplay(dir = "dgtrace", ggufUrl = "model-dg.gguf") {
   flushSubmit();
   await device.queue.onSubmittedWorkDone();
   const ms = performance.now() - t1;
-  L(`replay done: ${nd} dispatches in ${ms.toFixed(0)}ms | readback gate: ${nOK} OK, ${nBAD} MISMATCH`);
+  L(`replay done: ${nd} dispatches in ${ms.toFixed(0)}ms | readback gate: ${nOK} OK, ${nBAD} MISMATCH` +
+    (ckOK + ckBAD > 0 ? ` | cksum: ${ckOK} OK, ${ckBAD} BAD` : ""));
 
   // localization: compare every non-tensor buffer against the post-state
   // dump; the FIRST diverging buffer in dispatch order = the first bad kernel
