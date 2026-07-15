@@ -195,3 +195,30 @@ HEAD (position 0 → eos = "the turn is already over" — misframing signature).
 Unexamined suspects: the full-vocab scan kernels (reduceTopKB /
 ebSampleFullB — they PRODUCE the readbacks; likely subgroup-reduction
 patterns) and the post-R19 trustworthy drift curve (in flight).
+
+## R21 (2026-07-15): fastMath hypothesis tested and KILLED (cleanly)
+
+Mechanism found in Dawn source: hesper's pinned Dawn compiles MSL with
+fastMathEnabled = !strictMath (default FAST); newer Dawn/Chrome moved to
+strict. Implemented HESPER_STRICT_MATH=1 (bridge: ShaderModuleCompilationOptions
+chain + ShaderModuleCompilationOptions device feature).
+
+TRAP LOGGED: first run showed bit-identical results — the native bridge was
+CACHED (lakefile only rebuilds if libhesper_native.dylib is missing); the
+edit never compiled. `rm .lake/build/native/libhesper_native.dylib` forces it.
+A bit-identical "no effect" result should always raise the did-my-change-
+even-run question first.
+
+RESULT (real): hesper-strict step0 acc=140/meanH=0.661 (vs fast 122/0.634 —
+flag ACTIVE, near-tie-level shift) and still decodes "The capital of France
+is Paris." Chrome's divergence (meanH 2.09, eos-collapse) is a DIFFERENT
+KIND of difference, not math mode. Strongest remaining suspect: real
+codegen difference in Chrome's newer Tint for some kernel class (first
+mid-row jump: dp4a MMQ matmul #15, 2.5e-3 at mid rows / ULP at row 0,
+deterministic, inputs clean).
+
+NEXT DECISIVE EXPERIMENT: launch Chrome with
+--enable-dawn-features=dump_shaders, capture its MSL for the #15 kernel,
+and TEXT-DIFF against hesper's HESPER_DUMP_MSL for the same WGSL — makes
+the codegen difference directly visible. (Both dumps exist as tooling
+already; no new infrastructure needed.)
