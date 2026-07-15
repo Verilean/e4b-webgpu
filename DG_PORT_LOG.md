@@ -483,3 +483,24 @@ FIXES: recapture with DG_NOMSL=1 DG_NOMSLDOWN=1 (audited: no other MSL gates
 default-on); engine discovers tbuf by binding name and writes [prevT,0,0,0]
 per step. NEXT: validate new trace → replay (expect native-floor curve) →
 engine France → "[Pp]aris".
+
+## R33 (2026-07-16): M2a PASS — Chrome engine decodes France correctly
+
+With the recaptured hole-free trace (DG_NOMSL=1 DG_NOMSLDOWN=1; dgtrace-validate
+= 0 holes, din now written by 90 dispatches) + the engine tbuf fix:
+
+  ENGINE PASS: 6 steps | meanH step0 = 0.5636 (healthy; was 2.09 broken)
+  acc 112→189→212→218→233→242, STOP at step 5
+  text: <|channel>thought … Capital: Paris … <channel|>The capital of France is Paris.
+
+Native reference on the same config decoded the same structure ("…is Paris.").
+The entire R16-R31 "numeric divergence" hunt was chasing a phantom: the engine
+was starving 30 layers of MoE-down output. One validator run would have caught
+it. Score for the campaign: 33 logged iterations, 2 real bugs (both trace
+holes), 4 metric-blindness incidents, 2 timeout losses, 1 baseline
+contamination; reusable artifacts: dgtrace-validate.py, norm-checkpoint
+direction diffing, native-floor calibration, marker-sliced replay harness.
+
+Perf note: 56.7s/step in Chrome (verbatim per-dispatch replay, no batching/
+caching) — correctness first; perf campaign is next (M2b eval-8, then ternary/
+schedule/delta-prop toward the 250-400 tok/s targets).
