@@ -88,8 +88,38 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
       else if (cur) streams[cur].push(o);
     } }
   const stream0 = streams["step-0"] ?? ops;
-  const streamN = streams["step-2"] ?? streams["step-1"] ?? ops;
-  L(`streams: step0=${stream0.length} ops, stepN=${streamN.length} ops`);
+  // classify each recorded step stream by its embed-gather grid (first dispatch):
+  // full N=279 -> ceil(279*2816/256)=3069 workgroups; delta bucket M -> ceil(M*2816/256).
+  let streamN = null;                    // full-forward stream (step>=1: includes SC ops)
+  const deltaStreams = new Map();        // bucket M -> stream
+  // the full-forward embed-gather grid is whatever step-0 (always full) used —
+  // prompt length varies (P=21 here, 23 for other prompts), so derive, don't hardcode
+  const fullWG = (stream0.find((o) => o.t === "d") ?? { g: [0] }).g[0];
+  for (const [tag, st] of Object.entries(streams)) {
+    if (!tag.startsWith("step-") || tag === "step-0" || tag === "step-end") continue;
+    const d0 = st.find((o) => o.t === "d");
+    if (!d0) continue;
+    const wg = d0.g[0];
+    if (wg >= fullWG) { if (!streamN) streamN = st; }
+    else {
+      const M = Math.round((wg * 256) / 2816);
+      if (!deltaStreams.has(M)) deltaStreams.set(M, st);
+    }
+  }
+  streamN = streamN ?? streams["step-2"] ?? streams["step-1"] ?? ops;
+  const deltaBuckets = [...deltaStreams.keys()].sort((a, b) => a - b);
+  L(`streams: step0=${stream0.length} ops, full=${streamN.length} ops, delta buckets=[${deltaBuckets}]`);
+
+  // delta dyn-buffer roles: hesper writes rowsAbs, rowsCanvas, tokDelta (in that order,
+  // each M*4 bytes) at the head of every delta step — take the first three w-events of
+  // a delta stream. These MUST be engine-substituted every delta step, never replayed.
+  let rowsAbsU = null, rowsCanvasU = null, tokDeltaU = null;
+  if (deltaBuckets.length) {
+    const st = deltaStreams.get(deltaBuckets[0]);
+    const ws = st.filter((o) => o.t === "w" && o.hex).map((o) => String(o.u));
+    [rowsAbsU, rowsCanvasU, tokDeltaU] = ws;
+    L(`delta roles: rowsAbs=${rowsAbsU} rowsCanvas=${rowsCanvasU} tokDelta=${tokDeltaU}`);
+  }
 
   // ---- role discovery ----------------------------------------------------
   const uidOf = {};                      // bindingName -> uid (first occurrence)
@@ -136,15 +166,23 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
     device.queue.writeBuffer(bufs.get(u), 0, new Uint8Array((bufSizes[u] + 3) & ~3));
   L(`engine: ${ref.size} buffers, ${(loaded / 1e9).toFixed(1)}GB loaded (SC state zeroed)`);
 
-  const kids = [...new Set(ops.filter((o) => o.t === "d").map((o) => o.k))];
+  // pipelines compile LAZILY per stream (the delta trace has 3402 kernels incl.
+  // 183KB Q6_K monsters — compiling all upfront hangs Chrome for tens of minutes;
+  // per-stream compile costs ~1min for step-0 and a one-time hitch per new bucket)
   const pipes = new Map();
-  await Promise.all(kids.map(async (k) => {
-    const code = await fetch(`${dir}/k${k}.wgsl`).then((r) => r.text());
-    const module = device.createShaderModule({ code });
-    pipes.set(k, await device.createComputePipelineAsync({
-      layout: "auto", compute: { module, entryPoint: "main" } }));
-  }));
-  L(`engine: ${pipes.size} pipelines`);
+  const ensurePipes = async (stream) => {
+    const need = [...new Set(stream.filter((o) => o.t === "d").map((o) => o.k))]
+      .filter((k) => !pipes.has(k));
+    if (!need.length) return;
+    const t = performance.now();
+    await Promise.all(need.map(async (k) => {
+      const code = await fetch(`${dir}/k${k}.wgsl`).then((r) => r.text());
+      const module = device.createShaderModule({ code });
+      pipes.set(k, await device.createComputePipelineAsync({
+        layout: "auto", compute: { module, entryPoint: "main" } }));
+    }));
+    L(`engine: +${need.length} pipelines (${((performance.now() - t) / 1000).toFixed(1)}s, total ${pipes.size})`);
+  };
   const bgCache = new Map();
   const bgFor = (o) => {
     const sig = o.k + "|" + o.b.map(([, u]) => u).join(",");
@@ -182,8 +220,20 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
   // ---- step loop -----------------------------------------------------------
   const t0 = performance.now();
   let effSteps = 0, finished = false;
+  let prevFwdToks = null;                        // canvas used by the previous forward
+  const deltaRefresh = opts.deltaRefresh ?? 2;   // mirrors hesper DG_DELTAREFRESH
   for (let step = 0; step < S && !finished; step++) {
     const tCur = tmin + (tmax - tmin) * ((S - step) / S);
+    // DG_DELTA policy (mirrors hesper): delta when step>0, not a refresh step, and the
+    // changed canvas rows fit a captured bucket; else full forward.
+    let deltaRows = null, bucket = 0;
+    if (deltaBuckets.length && step > 0 && step % deltaRefresh !== 0 && prevFwdToks) {
+      const changed = [];
+      for (let i = 0; i < C; i++) if (toks[P + i] !== prevFwdToks[P + i]) changed.push(P + i);
+      const b = deltaBuckets.find((m) => m >= changed.length && changed.length > 0);
+      if (b) { deltaRows = changed; bucket = b; }
+    }
+    prevFwdToks = new Uint32Array(toks);
     const uArr = new Float32Array(C);
     // dynamic bytes for this step (uArr drawn at the ebU write position order:
     // hesper draws them right before the ebSample dispatch — same LCG order
@@ -198,6 +248,19 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
     }
     dyn.set(ebUU, new Uint8Array(uArr.buffer.slice(0)));
     dyn.set(ebPU, new Uint8Array(new Float32Array([tCur, 0, 0, 0]).buffer));
+    if (deltaRows) {
+      // pad by duplicating entry 0 (idempotent scatters)
+      const abs = new Uint32Array(bucket).fill(deltaRows[0]);
+      abs.set(deltaRows);
+      const cv = new Uint32Array(bucket), td = new Uint32Array(bucket);
+      for (let i = 0; i < bucket; i++) { cv[i] = abs[i] - P; td[i] = toks[abs[i]]; }
+      dyn.set(rowsAbsU, new Uint8Array(abs.buffer));
+      dyn.set(rowsCanvasU, new Uint8Array(cv.buffer));
+      dyn.set(tokDeltaU, new Uint8Array(td.buffer));
+    } else if (rowsAbsU) {
+      // full step: rows buffers are not part of this stream; ensure no stale-null carryover
+      dyn.delete(rowsAbsU); dyn.delete(rowsCanvasU); dyn.delete(tokDeltaU);
+    }
 
     let enc = device.createCommandEncoder();
     let lastD = null, s0diverged = 0;
@@ -205,7 +268,9 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
     const tEnc0 = performance.now();
     const endPass = () => { if (pass) { pass.end(); pass = null; } };
     const flush = () => { endPass(); device.queue.submit([enc.finish()]); nSubmits++; enc = device.createCommandEncoder(); };
-    for (const o of (step === 0 ? stream0 : streamN)) {
+    const stepStream = step === 0 ? stream0 : (deltaRows ? deltaStreams.get(bucket) : streamN);
+    await ensurePipes(stepStream);
+    for (const o of stepStream) {
       if (o.t === "w" && o.hex) {
         flush();
         const u = String(o.u);
@@ -334,7 +399,7 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
     const meanH = entSum / C;
     effSteps++;
     finished = (held >= ebStab && meanH < ebConfTh) || step + 1 >= S;
-    L(`step ${step}: acc=${nAcc} chg=${prevArgmax ? nChanged : "-"} meanH=${meanH.toFixed(4)} t=${tCur.toFixed(3)} | enc=${tEnc.toFixed(0)}ms gpu=${tGpu.toFixed(0)}ms rb=${(performance.now() - tRb0).toFixed(0)}ms disp=${nDisp} sub=${nSubmits}${finished ? " | STOP" : ""}`);
+    L(`step ${step}: acc=${nAcc} chg=${prevArgmax ? nChanged : "-"} meanH=${meanH.toFixed(4)} t=${tCur.toFixed(3)} | ${deltaRows ? `DELTA(${deltaRows.length}→M${bucket})` : "full"} enc=${tEnc.toFixed(0)}ms gpu=${tGpu.toFixed(0)}ms rb=${(performance.now() - tRb0).toFixed(0)}ms disp=${nDisp} sub=${nSubmits}${finished ? " | STOP" : ""}`);
     if (finished) for (let i = 0; i < C; i++) toks[P + i] = amax[i];
   }
   const ms = performance.now() - t0;
