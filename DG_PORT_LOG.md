@@ -740,3 +740,22 @@ dyn-substitution engine design — no dynamic composition needed).
 Next: K/V cache buffers (30×2×[N,kvDim] ≈ 68MB) + the delta step path in the
 decode loop + DG_DELTAREFRESH guardrail; parity check = DG_DELTA with
 refresh-every-step must be bit-identical to baseline.
+
+## R45 (2026-07-16): DG_DELTA v1 LANDS (hesper 15495ee) — machinery exact, policy loses on convergence
+
+Fork-implemented per the R43/R44 design; validation ladder:
+(a) baseline 846ms/step, Paris ✓
+(b) DG_DELTA=1 REFRESH=1: **bit-identical trajectory** (all step stats match to
+    every printed digit) — cache-rebind + full-pass wiring is EXACT.
+(c) refresh=4: delta steps fired at 111→M128, 74→M128, 45→M64;
+    **warm delta step 573ms vs 845 = -32%**; France correct, 6 steps.
+(d) eval: **8/8 quality, avg 725ms/step** — BUT eff-steps 62→97 total (+56%,
+    e.g. "opposite of hot" 13→25) ⇒ net wall time WORSE (~70s vs ~53s suite).
+
+VERDICT: same disease as SCTOPK in milder form — staleness (frozen K/V+logits
+of unchanged rows) slows entropy convergence. The eval gate's step-count check
+(added after SCTOPK) caught it exactly as designed. DG_DELTA stays opt-in.
+KEY REFRAME: per-step speed and convergence speed TRADE OFF through staleness;
+the win condition is a recompute policy that keeps convergence — candidates:
+refresh=2/3 sweep, and CONFIDENCE-GATED freezing (recompute changed ∪ high-H
+rows; the frozen high-H rows are likely what stalls acceptance).
