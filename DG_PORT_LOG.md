@@ -688,3 +688,34 @@ Goal: forward work ∝ nMasked (256→~40 by step 3), avg ~2× per decode.
   layer's K/V change when masked rows change — freezing them is APPROXIMATE
   mid-stack (exact only last-layer/lm_head). Eval-gate decides; llama.cpp
   diffusion does full recompute, so this would be a genuine structural edge.
+
+## R43 (2026-07-16): (A′) delta-prop opportunity MEASURED — 32% of rows, ~2.3-3.1× candidate
+
+Correction first: renoise mode has NO mid-decode commit (masked[] flips only at
+finish; non-accepted rows re-randomize every step) ⇒ "committed-row shrink"
+morphs into DELTA-PROP: recompute only rows whose INPUT token changed — and the
+changed set is known EXACTLY on the CPU before each forward (the scheduler
+writes toks itself). DG_DELTASTAT=1 measurement (France, hesper):
+  inputChanged/step = 256, 111, 74, 50, 40, 20, 15
+  Σ changed = 566 vs 1792 full-rows = 32% ⇒ ~3.1× theoretical on emb+fwd
+  (795ms of the 850ms step); with M-buckets {64,128,256}: ~2.3×.
+Projection: native step 850 → ~380-450ms ≈ llama.cpp per-step parity, and our
+eff-steps (7) < theirs (11) ⇒ end-to-end WOULD EXCEED llama.cpp (43 → ~85-95
+canvas tok/s). Chrome lab follows at its 2.1× factor (~20 → ~45).
+
+BUILD PLAN (next session-scale; staged, each stage eval-gated):
+1. Per-layer K/V caches [30][N,kvHeads*hd] persisted across steps; step 0
+   fills them (full forward).
+2. Rectangular attention variant: M_q = changed rows (gathered), K/V = full N
+   (cache ∪ fresh rows' K/V scattered in). battnB currently assumes square N.
+3. Gather changed rows → norms/qkv/dense/MoE chains at bucketed M ∈
+   {64,128,256}+P (kernels are dim-baked → 3 variants per matmul; reuse the
+   grouped-MoE machinery which already handles variable token counts!).
+4. Scatter fresh hiddens/logits; unchanged rows keep stale K/V + stale
+   logits (approximation — drift compounds; DG_DELTAREFRESH=<R> full forward
+   every R steps as the guardrail).
+5. Gate: dg_eval 8/8 + step-count non-regression (the SCTOPK lesson: watch
+   eff-steps, not just text).
+Risk note: stale K/V for unchanged rows is the same approximation class that
+mask-mode committed-caching would make; llama.cpp recomputes everything, so
+passing the gate here is a genuine structural win over the reference.
