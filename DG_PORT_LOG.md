@@ -573,3 +573,19 @@ Bugs found this round (all harness, none engine-core):
 STATE: M0/M1/M2a/M2b all PASS. Chrome = trusted lab at ~2.2s/step, 8/8 quality.
 NEXT: ③ perf campaign on the Chrome lab (eff-steps schedule, ternary,
 delta-prop, committed-caching) toward 250-400 tok/s targets.
+
+## R37 (2026-07-16): ③ perf campaign opened — Chrome-vs-native gap anatomy
+
+Baseline: Chrome 2163ms/step vs native-untraced ~883ms (full config) = 2.45×.
+Recoverable items by size:
+1. UNIFORM ~2.4× spread across the flat profile (1184 dispatches, avg 1.7ms)
+   → suspect robustness bounds-checks (native disables via disable_robustness;
+   Chrome forces them). TESTING NOW: --enable-dawn-features=disable_robustness
+   (lab-only flag, engine-dg-fast.sh harness).
+2. MoE gate/up reg 23ms×30 = 690ms (2× native per-layer).
+3. SC expected-embedding 198ms×1 — identified: probs[C,262k] × lmW[262k,2816]
+   = 189 GFLOP dense (~1 TFLOPS achieved). Top-K sparsification candidate
+   (scK=8 already exists) — numerics-gated.
+On the user's swap question: swap explained the eval-loop pressure (26.5GB,
+fixed by pre-capture pkill) but NOT step speed — per-step was 2.15-2.29s
+with swap full AND after recovery. The 2.4× is code-side, not paging.
