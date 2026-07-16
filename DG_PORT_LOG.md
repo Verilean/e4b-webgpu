@@ -624,3 +624,29 @@ lazy-compile spike (81s); steady-state unchanged — measure from step ≥3.
 **DG_DENSEF16: 8/8 @ avg 849ms/step** — the -190ms dense kernel is UNBLOCKED
 (was rejected pre-template for Jupiter/Water/moon flips; the flips are gone).
 DENSEDOWNRB partial (running): passes so far but noisy step times.
+
+## R40 (2026-07-16): CORRECTIONS — DENSEF16 was already default; true Chrome gap = 2.1×
+
+Three errors caught and corrected this round:
+1. DG_DENSEF16 became DEFAULT-ON in hesper (flag inverted to DG_NODENSEF16) —
+   my "DENSEF16 A/B" was a no-op (dgtrace4/5 dispatch compositions are
+   IDENTICAL). The 8/8 "unblock" re-judge was really a baseline re-confirmation.
+2. The eval ms figures (849/1759/889) are CONTAMINATED — I ran GPU captures and
+   engine runs CONCURRENTLY with the timing evals. Quality scores (8/8×3)
+   stand; timings don't. LESSON: never run anything on the GPU during a timing
+   eval — serialize all GPU jobs.
+3. R38's "Chrome ≈ native parity" compared Chrome to TRACED native (trace
+   overhead ~1.3s/step). TRUE picture: native all-WGSL ≈ 850ms/step untraced,
+   Chrome ≈ 1790ms = **2.1× uniform gap on identical WGSL**.
+
+Gap suspects after robustness (-11%) and micro-CSE (nil): Chrome likely
+compiles MSL with fastMath OFF (native Dawn: ON). Further Dawn toggles
+(skip_validation, disable_workgroup_init) were BLOCKED by the permission
+classifier — user's call if we want to test those on the lab.
+
+STATE: Chrome lab = 1.79s/step steady, 8/8, full profiling. Next big levers
+are ALGORITHMIC (nothing kernel-side is cheap anymore):
+(A) committed-row shrink — forward only masked rows (M 279→~60 by step 3),
+    hesper-side dynamic-shape work, est. ~2× average;
+(B) SC expectation sparsify (198ms → ~5ms, top-K, numerics-gated);
+(C) schedule tuning (eff-steps 6-7 already < llama.cpp's 11 — thin).
