@@ -662,3 +662,29 @@ DECISION: accept the 2.1× as the lab's constant factor; all further wins must
 be algorithmic — starting (B) SC expectation top-K sparsify (198ms→~5ms
 candidate, eval-gated), then (A) committed-row shrink (~2×, hesper dynamic
 shapes).
+
+## R42 (2026-07-16): (B) SC top-K sparsify REJECTED — SC strength buys eff-steps
+
+DG_SCTOPK=1 (renoise SC = renormalized top-8 expectation via the existing
+sparse gather path; hesper change: fullSC forcing lifted + per-position
+renorm): quality 8/8 BUT eff-steps EXPLODE 5-13 → 30-48 (48 = ceiling hit).
+Weakened self-conditioning → slower entropy collapse → stability stop never
+fires. Net: 3-6× SLOWER end-to-end despite removing the ~200ms dispatch.
+MECHANISM INSIGHT: the full-vocab SC expectation is load-bearing for
+CONVERGENCE SPEED, not just fidelity — "SC quality ↔ eff-steps" is a real
+axis. (Follow-up if ever needed: larger K (32-256) might buy most of the
+convergence back — untested; reduce kernel takes K as a param.)
+Flag kept opt-in; default unchanged. Both GPU-serialized, clean timings.
+
+### (A) committed-row shrink — design sketch for the next work item
+Goal: forward work ∝ nMasked (256→~40 by step 3), avg ~2× per decode.
+- Committed rows' K/V per layer: FREEZE at commit time (cache buffers
+  [30][N,kvDim]); recompute only masked+prompt rows each step.
+- Attention: masked-row queries attend over full K/V (cached ∪ fresh).
+- Dense/MoE/norms/lm_head: masked rows only (gather → compute → scatter).
+- Dynamic dims via padded buckets (M ∈ {64,128,192,256}+P) — kernels are
+  dim-baked, so 4 bucket variants per matmul; engine picks per step.
+- Approximation caveat (from memory): committed rows' hiddens feeding NEXT
+  layer's K/V change when masked rows change — freezing them is APPROXIMATE
+  mid-stack (exact only last-layer/lm_head). Eval-gate decides; llama.cpp
+  diffusion does full recompute, so this would be a genuine structural edge.
