@@ -759,3 +759,18 @@ KEY REFRAME: per-step speed and convergence speed TRADE OFF through staleness;
 the win condition is a recompute policy that keeps convergence — candidates:
 refresh=2/3 sweep, and CONFIDENCE-GATED freezing (recompute changed ∪ high-H
 rows; the frozen high-H rows are likely what stalls acceptance).
+
+## R46 (2026-07-16): DG_DELTAREFRESH=2 = the FIRST net delta-prop win (~-6% suite wall)
+
+Refresh sweep (all 8/8 quality):
+  REFRESH=2: 74 eff-steps (+19% vs 62), avg 669ms → suite ~49.5s vs ~52.6s
+             baseline = **net -6% end-to-end, quality intact** ✓ first win.
+  REFRESH=3: 96 steps — loses on steps alone (timings untrustworthy: swap crept
+             to 7.5GB across 16 consecutive 15.7GB model loads — suite harness
+             measurement caveat: STEP COUNTS are the reliable cross-config
+             metric; build a single-load eval mode before timing sweeps).
+Entropy-gated recompute (DG_DELTAHMIN, hesper 2450616, refresh-1 bit-identity
+re-verified): at REFRESH=8 HMIN=5 FAILS suite-wide (101 steps) BUT France
+single-prompt = 10 steps × 439ms = 4.4s — the strongest single-prompt result
+yet (baseline 5.9s). The staleness/convergence frontier is real and tunable;
+untested: HMIN at REFRESH=2.
