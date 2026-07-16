@@ -820,3 +820,27 @@ pipeline/QoS differences in Chrome's sandboxed GPU process, binding-level
 robustness residue. Decisive-but-heavy next experiment: build hesper against a
 July Dawn snapshot (2h build) — if native slows to ~1.8s, it's the Dawn
 version, not Chrome. PARKED as an open item; the lab's constant factor stands.
+
+## R50 (2026-07-16): convergence tax DIAGNOSED — real dynamics, policy-irreducible; delta ceiling = refresh-2
+
+Phase-1 decomposition (planet prompt, DG_DELTADIAG @ hesper 943de53):
+frozen rows' H ≈ 5e-5 (drags meanH DOWN, not up), sort first, consume ~0 cumE,
+argmax bytewise stable ⇒ hypotheses (a) stale-H stop-stall, (b) acceptance
+perturbation, (c) stability delay — ALL REFUTED. The smoking gun is the
+all-fresh refresh step: meanH 0.0257 vs baseline 0.0072 (3.5×) — the drift is
+BAKED INTO THE TOKEN TRAJECTORY: rows commit against 1-step-stale K/V of
+frozen rows, and slightly worse commits slow real convergence. Probe
+DG_DELTAMINROWS=96 (restrict delta to one early step): 9 steps — worse than R2
+(8) and baseline (7) ⇒ ANY single delta step forks the trajectory with a small
+negative step bias (the known near-tie fragility class). No fix ships; the
+menu targeting (a)/(b)/(c) would have been theater.
+
+VERDICT: the +~1 step/prompt tax at refresh=2 is architecturally irreducible
+by freeze policy — refreshing frozen rows' K/V requires their hiddens = a full
+pass. **Delta-prop is CLOSED at its measured ceiling: DG_DELTAREFRESH=2, net
+-6%, banked.** Side caveat logged: on delta steps the stop reads a diluted
+meanH (fresh-rows H ~0.17 at fire time); quality tolerated it (8/8).
+Honest research ledger for delta-prop overall: 1 structural win (-6%),
+4 policy ideas refuted with mechanism-level evidence, machinery bit-exact and
+reusable (the caches/buckets/rect-attention will serve any future partial-
+recompute scheme, e.g. mask-mode decoding where commits ARE sticky).
