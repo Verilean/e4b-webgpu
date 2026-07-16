@@ -844,3 +844,25 @@ Honest research ledger for delta-prop overall: 1 structural win (-6%),
 4 policy ideas refuted with mechanism-level evidence, machinery bit-exact and
 reusable (the caches/buckets/rect-attention will serve any future partial-
 recompute scheme, e.g. mask-mode decoding where commits ARE sticky).
+
+## R51 (2026-07-16): THE 2.1× LAB FACTOR SOLVED — a Dawn May→July runtime regression
+
+Stage 1 (tint CLI MSL diff, hot WMMA kernels): instruction selection IDENTICAL
+(same MMA/load counts, native mixed-precision, no fast-math pragmas; July even
+elides ~half the robustness clamps; side-note: July tint ICEs on mixed-precision
+simdgroup_multiply_accumulate unless IR validation asserts are off). Tint
+codegen EXONERATED.
+Stage 2 (hesper rebuilt on July Dawn a192e3019; bridge.cpp needed ZERO changes):
+**July-Dawn native = 2068-2262ms/step vs May = 854-896ms — uniform ~2.4×,
+matching Chrome's 1790-1820ms.** lmhead+reduce 185 vs 53ms. Restore verified
+(exact baseline trajectory back).
+
+VERDICT: the Chrome lab's 2.1× is a **Dawn runtime regression** (Metal backend
+behavior — NOT shader codegen, since the MSL is identical): suspicion set =
+inter-dispatch barrier/pass-splitting/resource-tracking changes. Chrome is
+"innocent" only in that it faithfully ships the regressed Dawn.
+Consequences: (1) hesper's May Dawn pin is PROTECTIVE — do not upgrade blindly;
+(2) cleanly bisectable (~10 builds, artifacts kept at /tmp/dawn-july-*,
+/tmp/hesper-native-july, dylib backup .may); (3) upstream bug report warranted
+after bisect; (4) if upstream fixes it, the Chrome lab gets ~2× for free
+(→ ~40 canvas tok/s in-browser).
