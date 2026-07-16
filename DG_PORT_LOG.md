@@ -774,3 +774,24 @@ re-verified): at REFRESH=8 HMIN=5 FAILS suite-wide (101 steps) BUT France
 single-prompt = 10 steps × 439ms = 4.4s — the strongest single-prompt result
 yet (baseline 5.9s). The staleness/convergence frontier is real and tunable;
 untested: HMIN at REFRESH=2.
+
+## R47 (2026-07-16): delta-prop frontier CLOSED — production setting = DG_DELTAREFRESH=2
+
+Final sweep (R2 vs R2+HMIN5 vs R2+HMIN10): all 8/8, and all three produce
+IDENTICAL per-prompt step counts (8,11,12,8,8,6,12,9 = 74) — at refresh-2 the
+drift window is 2 steps, so high-H rows coincide with token-changed rows and
+the entropy gate never fires. HMIN's niche was high-refresh (8+) where it
+already failed to restore convergence ⇒ knob stays, default 0.
+
+RECOMMENDATION: DG_DELTA=1 DG_DELTAREFRESH=2 (74 steps × ~669 vs 62 × ~849 ≈
+net -6%), with one caveat: all suite timings today are swap-contaminated
+(7.9GB residue, flat across runs — the runs don't grow it, macOS just won't
+reclaim); a single clean-boot confirmation measurement should finalize the -6%.
+Step counts (deterministic) are trustworthy throughout.
+
+CAMPAIGN LEDGER (session): 57.2s→2.16s/step Chrome (26×); native 0.85s;
+M0-M2b all passed; delta-prop machinery landed bit-exact (15495ee, 2450616)
+with the first structural win llama.cpp cannot replicate (-6%, quality 8/8).
+Open items: clean-boot timing confirmation; single-load eval harness (kills
+the swap-creep measurement class); HMIN×high-refresh convergence research;
+JS engine port of the delta streams (buckets are fixed graphs → engine-ready).
