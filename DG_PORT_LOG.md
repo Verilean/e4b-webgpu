@@ -719,3 +719,24 @@ BUILD PLAN (next session-scale; staged, each stage eval-gated):
 Risk note: stale K/V for unchanged rows is the same approximation class that
 mask-mode committed-caching would make; llama.cpp recomputes everything, so
 passing the gate here is a genuine structural win over the reference.
+
+## R44 (2026-07-16): delta-prop build STARTED — kernel vocabulary (stage 1)
+
+Chain mapped: every generator already takes N as a parameter → gathered
+contiguous [M,·] rows make all dim-baked kernels reusable with N:=M. Only 5
+genuinely new kernels, now implemented in DiffusionGemmaDecode.lean:
+  rowGatherB / rowScatterB     — the indirection boundary (rows[] u32, absolute)
+  qkNormRopeDeltaB             — RoPE position via rows[] (1-line indirection)
+  battnDeltaB (M,N)            — rectangular attention: q/ctx [M], k/v full [N]
+                                 caches; mask dropped (canvas rows ≥ P always
+                                 allowed, bidirectional)
+  copyCanvasLogitsDeltaB       — logits scatter to canvas rows via rows[]
+Padding trick: buckets pad by DUPLICATING rows[0] → scatters write identical
+data to the same destination = idempotent, no masking needed anywhere.
+Architecture: hesper runs DG_DELTA natively (native wins directly); per-bucket
+dispatch streams are FIXED graphs → the JS engine later replays "stream for
+bucket B" with dyn-substituted rows/tokens (fits the existing marker-slice +
+dyn-substitution engine design — no dynamic composition needed).
+Next: K/V cache buffers (30×2×[N,kvDim] ≈ 68MB) + the delta step path in the
+decode loop + DG_DELTAREFRESH guardrail; parity check = DG_DELTA with
+refresh-every-step must be bit-identical to baseline.
