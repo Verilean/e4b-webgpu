@@ -607,3 +607,20 @@ Campaign queue (by recoverable ms, all-WGSL step = ~2100):
     (DG_DENSEF16 / DG_DENSEDOWNRB / both) — native eval ×3 RUNNING.
 (b) MoE gate/up reg 23ms×30 — WGSL-quality pass on the lab.
 (c) SC expectation 198ms — top-K sparsify (numerics-gated).
+
+## R39 (2026-07-16): (b) micro-CSE REJECTED; (a) DENSEF16 UNBLOCKED 8/8
+
+(b) Lab experiment: mechanically CSE'd the Q4_K grouped-reg gate/up scale-decode
+(hoist 4 b[] word loads + base index into lets; 30 kernel files patched in the
+trace, bit-identical semantics): 23ms → ~22ms = NO WIN. Chrome already CSEs;
+the kernel is WMMA/global-load bound. ⇒ the 2× WGSL-vs-MSL gap on this kernel
+class is instruction-selection depth, unreachable by WGSL surface edits.
+Conclusion: kernel-side headroom on Chrome is thin; the campaign pivots to
+ALGORITHMIC reduction (committed-row shrink, fewer steps, SC sparsify).
+Side lesson: editing kernel files invalidates Chrome's shader cache → step-0
+lazy-compile spike (81s); steady-state unchanged — measure from step ≥3.
+
+(a) Native re-judge under the chat template (the near-tie fixer):
+**DG_DENSEF16: 8/8 @ avg 849ms/step** — the -190ms dense kernel is UNBLOCKED
+(was rejected pre-template for Jupiter/Water/moon flips; the flips are gone).
+DENSEDOWNRB partial (running): passes so far but noisy step times.
