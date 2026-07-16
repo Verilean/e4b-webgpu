@@ -589,3 +589,21 @@ Recoverable items by size:
 On the user's swap question: swap explained the eval-loop pressure (26.5GB,
 fixed by pre-capture pkill) but NOT step speed — per-step was 2.15-2.29s
 with swap full AND after recovery. The 2.4× is code-side, not paging.
+
+## R38 (2026-07-16): disable_robustness = -11%; the REAL gap is WGSL-vs-MSL, not Chrome
+
+--enable-dawn-features=disable_robustness (engine-dg-fast.sh): steady gpu
+1990→1780ms, PASS text intact ⇒ real but minor; keep for the lab.
+
+REFRAME (important): the eval-run natives (same all-WGSL kernel set) ran
+2148-2288ms/step — **Chrome 2083ms is ALREADY at parity with all-WGSL native.**
+The remembered "883ms native" config includes the hand-MSL gate/up (+down).
+So the 2.4× is the known Tint-quality gap of OUR WGSL kernels, not a Chrome
+tax ⇒ kernel-quality work pays BOTH runtimes; the Chrome lab can iterate on
+.wgsl files directly (edit → re-run, no Lean rebuild).
+
+Campaign queue (by recoverable ms, all-WGSL step = ~2100):
+(a) RE-JUDGE blocked -190ms dense kernels under the chat template
+    (DG_DENSEF16 / DG_DENSEDOWNRB / both) — native eval ×3 RUNNING.
+(b) MoE gate/up reg 23ms×30 — WGSL-quality pass on the lab.
+(c) SC expectation 198ms — top-K sparsify (numerics-gated).
