@@ -650,3 +650,15 @@ are ALGORITHMIC (nothing kernel-side is cheap anymore):
     hesper-side dynamic-shape work, est. ~2× average;
 (B) SC expectation sparsify (198ms → ~5ms, top-K, numerics-gated);
 (C) schedule tuning (eff-steps 6-7 already < llama.cpp's 11 — thin).
+
+## R41 (2026-07-16): Dawn toggles exhausted — skip_validation+disable_workgroup_init = NIL
+
+User-approved A/B: EXTRA_DAWN="disable_workgroup_init,skip_validation" on top of
+disable_robustness: steady 1787-1829ms = no change (robustness alone: 1780-1815).
+Chrome-flag levers are DONE: -11% total (robustness), everything else nil.
+The 2.1× residual vs native lives below the flag surface (MSL fast-math and/or
+Tint codegen differences; ShaderModuleCompilationOptions isn't page-exposed).
+DECISION: accept the 2.1× as the lab's constant factor; all further wins must
+be algorithmic — starting (B) SC expectation top-K sparsify (198ms→~5ms
+candidate, eval-gated), then (A) committed-row shrink (~2×, hesper dynamic
+shapes).
