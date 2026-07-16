@@ -349,8 +349,11 @@ export async function runEngine(dir = "dgtrace", opts = {}) {
     if (id === 106 || id === 1) { if (++eosSeen >= 2) break; continue; }
     text += (vocab[id] ?? "<unk>").replace(/▁/g, " ");
   }
-  const pass = /[Pp]aris/.test(text);
-  L(`ENGINE ${pass ? "PASS" : "FAIL"}: ${effSteps} steps, ${(ms / effSteps).toFixed(0)}ms/step | text: ${text.slice(0, 200)}`);
-  await fetch("/result", { method: "POST", body: JSON.stringify({ pass, effSteps, msPerStep: ms / effSteps, text: text.slice(0, 400) }) });
+  // verdict: prompt-agnostic. ?expect=<regex> grades the text; without it,
+  // completing the decode loop is the success criterion (keyword scoring is
+  // the harness's job — eval8-chrome.sh).
+  const pass = opts.expect ? new RegExp(opts.expect).test(text) : true;
+  L(`ENGINE ${pass ? "PASS" : "FAIL"}: ${effSteps} steps, ${(ms / effSteps).toFixed(0)}ms/step | text: ${text.slice(0, 1200)}`);
+  await fetch("/result", { method: "POST", body: JSON.stringify({ pass, effSteps, msPerStep: ms / effSteps, text: text.slice(0, 1200) }) });
   return { pass, effSteps, ms, text };
 }

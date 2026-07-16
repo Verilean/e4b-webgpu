@@ -547,3 +547,29 @@ per-layer — Chrome WMMA slower), one 198ms a,b,c WMMA (n=1, near step head),
 long tail ≤3.8ms. Next levers are the REAL perf campaign (③): fewer eff-steps
 (schedule/CONF), ternary/delta-prop kernel work, committed-caching — targets
 llama.cpp 64 tok/s then beyond.
+
+## R36 (2026-07-16): M2b PASS — Chrome engine 8/8 on the dg_eval suite
+
+harness/eval8-chrome.sh: per-prompt capture (optimal traceable config) → hole
+validation → Chrome engine → keyword check → delete trace (~21GB each, disk
+can't hold 8). Native same-config: 8/8.
+
+Chrome: first pass 6/8 + TWO FALSE FAILS from the engine's 200-char text log
+truncating before the keyword ("cold"/"Armstrong" sat beyond) — re-judged with
+1200-char logging: both PASS ⇒ **8/8, gate TOTAL == native TOTAL, M2b PASSED.**
+Per-step 2.15-2.29s across all prompts (prompt-length invariant).
+
+Bugs found this round (all harness, none engine-core):
+1. Engine verdict was France-hardcoded (/[Pp]aris/) — FAILed 7/8 prompts while
+   decoding them correctly; now prompt-agnostic (?expect= optional).
+2. Text-log truncation (200 chars) caused keyword false-FAILs → 1200.
+3. eval loop left the previous Chrome (20.6GB GPU) alive during the native
+   capture → swap hit 26.5GB/27.6GB (user caught it: "swapがおおすぎる");
+   pkill before capture; swap recovered to 3.3GB. Per-step times were stable
+   throughout — pressure hurt headroom, not this run's numbers.
+4. Editing a bash script WHILE it runs shifts bytes under bash's incremental
+   read → spurious syntax error at the tail. Edit copies, not live scripts.
+
+STATE: M0/M1/M2a/M2b all PASS. Chrome = trusted lab at ~2.2s/step, 8/8 quality.
+NEXT: ③ perf campaign on the Chrome lab (eff-steps schedule, ternary,
+delta-prop, committed-caching) toward 250-400 tok/s targets.

@@ -9,5 +9,6 @@ const L = (m) => fetch("/log", { method: "POST", body: String(m) }).catch(() => 
 const q = new URLSearchParams(location.search);
 const seed = parseInt(q.get("seed") || "12345");
 const prof = q.get("prof") === "1";
-try { await runEngine("dgtrace", { seed, prof }); } catch (e) { await L("ENGINE EXCEPTION: " + (e.stack || e)); }
+const expect = q.get("expect") || null;
+try { await runEngine("dgtrace", { seed, prof, expect }); } catch (e) { await L("ENGINE EXCEPTION: " + (e.stack || e)); }
 </script>
