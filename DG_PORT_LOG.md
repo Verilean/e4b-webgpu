@@ -795,3 +795,28 @@ with the first structural win llama.cpp cannot replicate (-6%, quality 8/8).
 Open items: clean-boot timing confirmation; single-load eval harness (kills
 the swap-creep measurement class); HMIN×high-refresh convergence research;
 JS engine port of the delta streams (buckets are fixed graphs → engine-ready).
+
+## R48 (2026-07-16): delta-prop PORTED to the Chrome engine — delta step = -50% on Chrome
+
+Fork-built (e4b 3ca9e59 + hesper f7714da DG_TRACE_END): per-step stream
+classification (full vs delta-M by embed grid, threshold derived from step-0 —
+P varies by prompt!), runtime policy mirrors hesper (odd steps, fit-to-bucket,
+full fallback), rows/tokDelta identified from the delta stream's w-events and
+dyn-substituted, padding = dup-entry-0. Lazy per-stream pipeline compile added
+(3402 kernels upfront hung Chrome 25min ×2; lazy = 0.3-0.6s per batch).
+Chrome France: PASS "…Paris."; full step ~1820ms; **DELTA steps 899-1121ms =
+-50%**; buckets [64,128] fired; engine 8 eff-steps vs native 6 (known q8-flip
+trajectory divergence, not delta-specific). Ops discipline: disk had filled
+(100%) with stale traces — cleared 179GB; trace window needed DG_TRACE_END.
+
+## R49 (2026-07-16): fast-math WALL hypothesis REFUTED
+
+HESPER_STRICT_MATH=1 native France (no trace): **843-846ms/step — IDENTICAL to
+the fast-math baseline** (and the trajectory shifted acc 145→143, proving the
+flag engaged). Strict math costs native nothing ⇒ Chrome's 2.1× is NOT
+fp-strictness. Remaining suspects: Tint May-vs-July codegen at scale (k15 CLI
+diff showed only clamp/scheduling deltas — but that was one kernel), Metal
+pipeline/QoS differences in Chrome's sandboxed GPU process, binding-level
+robustness residue. Decisive-but-heavy next experiment: build hesper against a
+July Dawn snapshot (2h build) — if native slows to ~1.8s, it's the Dawn
+version, not Chrome. PARKED as an open item; the lab's constant factor stands.
