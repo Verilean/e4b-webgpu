@@ -933,3 +933,26 @@ is not. Consequences:
 NEW MEASUREMENT RULE: Chrome-side timings are only valid with a clean-state
 pre-flight (swap <1GB, no Jetsam events since boot); log the machine state
 with every measurement.
+
+## R55 (2026-07-17): re-baseline complete — the picture is finally COHERENT
+
+Clean-state measurements (post-reboot, guardrails, serial):
+  Chrome 148 (May-class Dawn): 757-790ms | native all-WGSL (May Dawn): 841-845
+  Chrome 150 (July Dawn): 1780-1807 (UNCHANGED from "contaminated" era — 150's
+  slowness was always real) | native July rebuild: 2068-2262
+  native + hand-MSL gate/up+down: **662-663ms = -21% vs all-WGSL** ✓ REAL
+FINAL DECOMPOSITION: the lab factor was the Dawn May→July regression, PERIOD
+(~2.3×, present in both embedders). The "1.6× Chrome env factor" (R52) is
+RETRACTED — an artifact of measuring 147/148 on the degraded pre-panic
+machine; clean Chrome 148 is FASTER than native-WGSL. Contamination asymmetry
+explained: the degraded state hit Chrome's GPU process, not native.
+M-METAL PREMISE RE-VERIFIED CLEAN: the direct-Metal path's edge is real
+(-180ms from 2 kernels; sources: Tint-vs-hand MSL codegen + skipping Dawn
+dispatch + no robustness clamps — note run A had native robustness ON).
+Stage 1 verdict stands: WGSL surface authorship is irrelevant; the wins are in
+the EXECUTION PATH (Metal direct) and ALGORITHM classes, not WGSL phrasing.
+STAGE 2 = GO. Projection: full-Metal backend ~500-600ms/step, then kernel
+algorithm work toward llama.cpp's 363; with DG_DELTA + fewer eff-steps the
+64 tok/s end-to-end target is credible.
+Lab operating point going forward: Chrome 148 pinned (CHROME_BIN), clean-state
+pre-flight mandatory, machine-state logged with every Chrome measurement.
