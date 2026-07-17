@@ -1001,3 +1001,28 @@ Session ladder (per-step): 2700 (campaign start) → 883 → 830 → 662 → 611
 Remaining known slack: Stage 4 concurrency, kernel algorithm classes, delta-prop
 (-6% banked, composes), schedule. Housekeeping debt: gpu-roundtrip exe bit-rot,
 stray float64_to_bytes debug print.
+
+## R58 (2026-07-18): Stage 3 LANDS (hesper d8d6491) — the verification leg closes
+
+MSL front end on wgsl-check (~460 LOC): kernel-signature scan ([[buffer(n)]] →
+storages, thread attrs → builtin map), body normalization to the shared walker
+(inline-helper substitution makes rd_byte's reads visible; ternary→select;
+C decls→let/var), manifests generated from the REAL dispatch sites with
+line-documented provenance. Shared-analysis upgrades benefit WGSL too
+(select-under-refinement, let-bound bool guards, v+const refinement,
+var-initializer bounds). **simdgroup_load/store footprint check = the R32
+WMMA-tail heap-stomp class, now caught statically** (fixture proves it).
+
+Production verdicts (q4k_gateup / q8_down / q5_down): **0 FAIL, 5 WARN** — the
+q4k simdgroup stores prove in-bounds TIGHT BY ONE ELEMENT; the WARNs are
+honest trust boundaries (counting-sort invariants for idx/pos/slot indirection;
+DG_FUSEDOWN-only dead code), not noise. Unsoundness boundaries documented
+(no pointer locals / threadgroup-mem bounds / multi-stmt helpers → WARN).
+Gate: `bash scripts/msl_check.sh` (fixtures must FAIL + production must not;
+exit 2 if the suite itself breaks). WGSL spec suite regression: identical.
+
+M-METAL STATUS: stages 1-3 DONE. Every kernel in the metal backend is now
+statically checked — tint-translated ones at their WGSL source, hand-MSL by
+this front end. Remaining: Stage 4 (concurrent submission via static hazard
+sets) — the beyond-Dawn endgame. Note for later: manifests are France-config
+(N=277); per-config regeneration from traces generalizes the gate.
