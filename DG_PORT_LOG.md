@@ -978,3 +978,26 @@ Gap to the 662ms target = the 2 hand-MSL kernels (Dawn-coupled; metal mode
 needs DG_NOMSL=1 for now) → stage-2b routes them onto the metal queue,
 projected ~580-600ms. Ladder: llama.cpp 363 | MSL-hybrid 662 | METAL 762 |
 Dawn-WGSL 841 | lab 757-790 | Dawn-July 1780+.
+
+## R57 (2026-07-18): Stage 2b LANDS (hesper 0ec5d40) — fastest config ever; llama.cpp within noise
+
+Hand-MSL gate/up + down now dispatch on the metal backend's own queue (MTLBufs
+direct from HMBuf, no Dawn-internal extraction; commit order = execution order
+so the Lean flush contracts carry over unchanged). HESPER_BACKEND=metal now
+runs the FULL default kernel set with no exclusion flags.
+
+| config | France /step | eval emb+fwd | eval |
+|---|---|---|---|
+| Dawn all-WGSL | 841-845 | — | 8/8 (62 steps) |
+| Dawn + hand-MSL (old best) | 662 | ~608 | 8/8 |
+| Metal, all tint-MSL | 762 | 722 | 8/8 (62 exact) |
+| **Metal + hand-MSL (2b)** | **611-612** | **554** | **8/8 (63, family)** |
+
+-8% vs the best Dawn config; **canvas ≈ 60 tok/s vs llama.cpp 64 — parity
+within measurement noise**, with Stage 3 (MSL checker) and Stage 4 (concurrent
+submission) still ahead. The M-Metal thesis is fully operational: verified
+kernels, robustness off, Dawn structurally out, July-regression immune.
+Session ladder (per-step): 2700 (campaign start) → 883 → 830 → 662 → 611.
+Remaining known slack: Stage 4 concurrency, kernel algorithm classes, delta-prop
+(-6% banked, composes), schedule. Housekeeping debt: gpu-roundtrip exe bit-rot,
+stray float64_to_bytes debug print.
