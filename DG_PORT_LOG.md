@@ -1056,3 +1056,24 @@ the bottleneck.
 FINAL STATE: ~609-611ms/step, canvas ≈60 tok/s vs llama.cpp 64 (noise-level).
 The 363ms horizon = kernel/algorithm work (region hazards, lm_head split,
 matmul classes) + delta-prop composition (-6% banked) + schedule.
+
+## R60 (2026-07-18): compute-utilization diff vs llama.cpp — user hypothesis CONFIRMED (WMMA class)
+
+Analysis-only pass (recipes/DG_COMPUTE_ANALYSIS.md, clean-anchored):
+  MoE gate/up+down (hand-MSL): 230-280ms @ 30-40% — ALREADY ≥ llama.cpp
+    mul_mat_id (anti-finding, leave alone).
+  **dense+qkv+attnO f16 WMMA (M=277): 165-205ms @ 10-15% util — THE recovery
+    source, occupancy/pipeline-limited.** Root config diff (llama.cpp source
+    read): their kernel_mul_mm uses TG tile 64×128 (ours 64×32 = 1/4 the work
+    per TG) and stages ONLY quantized A in threadgroup memory — f16 B is
+    simdgroup_load'ed DIRECT from device; we double-stage A and B via
+    div/mod-chain per-element indexing. Not WGSL-vs-MSL, not surface code
+    (R54 proved that layer irrelevant) — TILE GEOMETRY and LOAD PATH.
+  battnB: 30-45ms @ 1-2% — algorithm class (no flash-attn).
+  elementwise tail 60-90ms latency-bound; SC/lm_head near roofline.
+RANKED PLAN: ① WMMA tile widening + direct-B (-100~140ms, cheap generator
+parameter sweep) → ② elementwise fusion re-judged under template (-20~40) →
+③ flash-attention (-20~35, high effort). All three → ~400-455ms/step →
+canvas ~85-91 tok/s = clearly BEYOND llama.cpp end-to-end.
+Measurement notes: metal-mode DG_PROF inflates 2.4× (per-mark waits; ratios
+only); Chrome profile under 4.6GB swap residue (ranking only).
