@@ -887,3 +887,19 @@ creation race) — retry; and first run pays a big shader-compile step-0 (13s).
 ACTION: the lab gains ~17-20% by pinning Chrome 147/148 (CHROME_BIN env,
 binaries kept at /tmp/claude-503/cft/). Chrome-150 numbers remain the
 comparable series in this log unless noted.
+
+## R53 (2026-07-17): KERNEL PANIC during Stage 1 — resource guardrails now mandatory
+
+Machine panicked 21:12 ("watchdog timeout: no checkins from watchdogd in 93s")
+with Jetsam OOM events preceding — the system-unresponsive-from-memory-pressure
+signature. Our footprint is implicated: ~20GB wired GPU buffers + repeated
+swap excursions (7-26GB today) + ~21GB trace copies on a ~90%-full disk +
+Chrome engine residents. The "never kill -9 GPU work" rule protected the GPU
+state but we were breaking the machine a DIFFERENT way (aggregate pressure).
+NEW MANDATORY GUARDRAILS (issued to all workers):
+  - pre-flight before heavy steps: swap used <4GB AND disk free >60GB, else
+    clean up first; abort gracefully if swap >10GB mid-run;
+  - APFS clones (cp -cR) / hardlinks for trace dump copies — never cp -r 21GB;
+  - ONE heavy process at a time; kill lab Chrome profiles right after each
+    measurement (no resident 20GB tabs).
+Stage 1 (hand-WGSL twin) resumes on the clean post-reboot machine.
