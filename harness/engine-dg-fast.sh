@@ -5,7 +5,7 @@
 set -u
 TIMEOUT="${1:-600}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+CHROME="${CHROME_BIN:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
 PROFILE="${E4B_CHROME_PROFILE:-$HOME/.cache/e4b-chrome-a4b}"
 pkill -f "user-data-dir=$PROFILE" 2>/dev/null; sleep 1
 : > "$ROOT/harness/run.log"

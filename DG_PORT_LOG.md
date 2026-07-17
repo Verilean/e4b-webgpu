@@ -866,3 +866,24 @@ Consequences: (1) hesper's May Dawn pin is PROTECTIVE — do not upgrade blindly
 /tmp/hesper-native-july, dylib backup .may); (3) upstream bug report warranted
 after bisect; (4) if upstream fixes it, the Chrome lab gets ~2× for free
 (→ ~40 canvas tok/s in-browser).
+
+## R52 (2026-07-17): Chrome version pin experiment — 2.1× decomposed into TWO factors
+
+Chrome for Testing 147/148 (Dawn ~Apr/early-May) vs 150 (July), same trace/
+harness (CHROME_BIN override added to engine-dg-fast.sh; fresh profiles):
+  147: full 1387-1635ms, delta 536/766ms (delta ≈ NATIVE's 573!)
+  148: full 1233-1582ms, delta 763/827ms
+  150: full 1780-1840ms, delta 899-1121ms
+  native-May 854-896/573; native-July 2068-2262.
+DECOMPOSITION: (1) Dawn May→July regression ≈ 1.2× in Chrome (150 vs 147/148),
+confirmed independently by the native A/B (2.4× standalone — the standalone
+July build is even worse than Chrome 150, suggesting Chrome carries partial
+mitigations or standalone validation differences). (2) A residual Chrome-env
+factor ≈ 1.6× on FULL steps at 147/148 — NOT uniform: delta steps reach native
+parity (536 vs 573ms) while full steps don't ⇒ the env penalty concentrates in
+the big-M kernel classes (WMMA/MoE at M=277), worth a per-kernel profile on
+148 someday. Gotcha: first launch of a fresh CfT profile can no-op (profile
+creation race) — retry; and first run pays a big shader-compile step-0 (13s).
+ACTION: the lab gains ~17-20% by pinning Chrome 147/148 (CHROME_BIN env,
+binaries kept at /tmp/claude-503/cft/). Chrome-150 numbers remain the
+comparable series in this log unless noted.
