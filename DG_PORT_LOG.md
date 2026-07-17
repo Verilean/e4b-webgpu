@@ -1077,3 +1077,24 @@ parameter sweep) → ② elementwise fusion re-judged under template (-20~40) �
 canvas ~85-91 tok/s = clearly BEYOND llama.cpp end-to-end.
 Measurement notes: metal-mode DG_PROF inflates 2.4× (per-mark waits; ratios
 only); Chrome profile under 4.6GB swap residue (ranking only).
+
+## R61 (2026-07-18): ① tile sweep = honest NEGATIVE + R60's top line RETRACTED
+
+Sweep (real DG shapes, golden-gated, metal backend): deployed 64×32-staged is
+already at **8.2-8.9 TFLOPS ≈ 60% of peak** on the big shapes; wide tiles LOSE
+(register pressure; 128×64 >2× worse); direct-B works (May tint accepts
+storage-space subgroupMatrixLoad — capability banked as the generator's directB
+param, hesper fe3ef86, defaults unchanged, France bit-identical) but wins only
+~16ms/step total < 25ms threshold → NOT integrated, per the pre-registered
+stop rule.
+
+**RETRACTION: R60's "WMMA class at 10-15% util, -100~140ms recoverable" was a
+wrong utilization estimate.** In-decode WMMA time ≈ Σ(bench time × layers) —
+the class already runs at bench speed, near llama.cpp-class efficiency. The
+611-vs-363 gap re-attributes to: MoE auxiliary chain (router/sort/gather/
+scatter/geglu/q80 dispatches), elementwise tail (60-90ms; llama.cpp fuses
+heavily), attention algorithm (no flash-attn), SC. The recovery list must be
+re-ranked from these — each a 20-90ms grind, no single big lever left.
+Ledger note: two analysis passes in a row produced wrong top-line estimates
+(R60 util; R52 env factor) — both caught by the measure-before-integrate
+discipline before any code shipped on them.
