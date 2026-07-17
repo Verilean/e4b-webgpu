@@ -1026,3 +1026,33 @@ statically checked — tint-translated ones at their WGSL source, hand-MSL by
 this front end. Remaining: Stage 4 (concurrent submission via static hazard
 sets) — the beyond-Dawn endgame. Note for later: manifests are France-config
 (N=277); per-config regeneration from traces generalizes the gate.
+
+## R59 (2026-07-18): Stage 4 LANDS (hesper 53692f9) — M-METAL COMPLETE (all 4 stages)
+
+Concurrent encoder + static hazard analysis (barrier only on RAW/WAW/WAR at
+buffer granularity; write masks parsed from WGSL with store-site refinement —
+declared modes alone gave zero overlap since WMMA generators declare all
+read_write; wrong demotion = missed hazard = bit-identity gate failure;
+HESPER_METAL_SERIAL / _NOREFINE kill-switches; _STATS accounting).
+Gates: bit-identity PASS (every printed stat identical); eval 8/8 (steps
+identical by construction); coherency 20/20; msl_check 0 FAIL.
+Timing: 622-663 → **609-644ms (~-2%)**, barrier ratio 47.2%. HONEST verdict:
+correct but small — the hoped-for overlaps are blocked by buffer-granularity
+WAW false hazards (8 lm_head chunks write disjoint REGIONS of one logits
+buffer → serialize) and genuinely RAW-chained pipelines. Future unlocks noted:
+region-granularity footprints, or splitting lm_head chunk outputs into 8
+buffers (cheap hesper change). Concurrent stays metal-default (never slower,
+bit-identical).
+
+### M-METAL MILESTONE CLOSED — ledger
+S1 twin: WGSL authorship irrelevant; measurement-history rewrite (machine
+contamination; env-factor retracted; Dawn July regression = the whole lab gap).
+S2 thin Metal backend: Dawn out of hot path, -10%, bit-identical, 8/8.
+S2b hand-MSL hosted: 611ms = fastest ever (-8% vs best Dawn).
+S3 MSL checker: verification closed over both kernel languages; R32 bug class
+statically caught; production 0 FAIL.
+S4 concurrent: correct (+bit-identical) but -2%; submission order is no longer
+the bottleneck.
+FINAL STATE: ~609-611ms/step, canvas ≈60 tok/s vs llama.cpp 64 (noise-level).
+The 363ms horizon = kernel/algorithm work (region hazards, lm_head split,
+matmul classes) + delta-prop composition (-6% banked) + schedule.
