@@ -956,3 +956,25 @@ algorithm work toward llama.cpp's 363; with DG_DELTA + fewer eff-steps the
 64 tok/s end-to-end target is credible.
 Lab operating point going forward: Chrome 148 pinned (CHROME_BIN), clean-state
 pre-flight mandatory, machine-state logged with every Chrome measurement.
+
+## R56 (2026-07-17): M-Metal Stage 2 LANDS (hesper 1b9536e) — Dawn out of the hot path
+
+Thin Metal backend (~650 LOC: metal_backend.mm + 25 branched FFI entries;
+HESPER_BACKEND=metal, zero change when unset): shared-mode buffers explicitly
+ZEROED (Dawn parity — uninitialized-read class stays dead); runtime WGSL→MSL
+via the pinned May tint CLI (--disable-robustness, fast-math; content-hash
+disk cache — also kills the 30-duplicate-compile finding); serial compute
+encoder per batch = Dawn barrier semantics; reads fence on the last batch.
+Tint CLI rebuilt in-tree (.lake/build/tint-cli, HESPER_TINT override).
+
+Gates: (a) coherency smoke 20/20; (b) France "Paris." with a trajectory
+IDENTICAL TO DAWN to every printed digit (same tint codegen + serial order ⇒
+same reduction order); (c) **762ms/step vs Dawn 841-845 = -10%**, 44.1 canvas
+tok/s; (d) eval **8/8, eff-steps 62 = exact baseline**.
+
+THE THESIS IS RUNNING: checker-covered kernels, robustness OFF, no Dawn, no
+July-regression exposure — with bit-identical numerics and full quality.
+Gap to the 662ms target = the 2 hand-MSL kernels (Dawn-coupled; metal mode
+needs DG_NOMSL=1 for now) → stage-2b routes them onto the metal queue,
+projected ~580-600ms. Ladder: llama.cpp 363 | MSL-hybrid 662 | METAL 762 |
+Dawn-WGSL 841 | lab 757-790 | Dawn-July 1780+.
