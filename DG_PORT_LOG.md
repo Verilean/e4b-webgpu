@@ -903,3 +903,33 @@ NEW MANDATORY GUARDRAILS (issued to all workers):
   - ONE heavy process at a time; kill lab Chrome profiles right after each
     measurement (no resident 20GB tabs).
 Stage 1 (hand-WGSL twin) resumes on the clean post-reboot machine.
+
+## R54 (2026-07-17): Stage 1 verdict + A MEASUREMENT-HISTORY REWRITE
+
+Twin experiment (hand-WGSL with all hygiene fixes — unpack2x16float, single
+loads, staged locals — vs generated DSL kernel, Chrome 148, clean boot,
+paired): **IDENTICAL (10.2-12.4 vs 10.1-12.6ms)**. Surface authorship quality
+is IRRELEVANT — the Metal compiler already extracts full performance from the
+generated WGSL (consistent with R39 CSE-nil). Phase-0 strategy diff confirmed
+the hand-MSL and DSL kernels are ALGORITHM-IDENTICAL (same tiling/fragments);
+the DSL's ugliness (exp2-chain f16 decode, double loads, monster B-fill) is
+cosmetic. Side finds: 30 layers compile 30 byte-identical kernels under
+different hashes (redundant pipeline compiles — fix candidate); Tint MMA
+lowering is correct.
+
+THE REWRITE: pre-panic machine degradation had inflated ALL Chrome-side
+numbers ~1.7-2× (same kernel 23→11ms, full step 1250-1580→**757-790ms** after
+clean boot, zero code changes). Native was INSENSITIVE (841-887ms throughout)
+— Chrome's sandboxed GPU process is the memory-pressure victim, native Dawn
+is not. Consequences:
+  - Clean Chrome 148 lab (757-790ms) is now FASTER than native (841-887ms).
+  - R52's "1.6× Chrome env factor" = likely contamination; re-baselining now
+    (clean Chrome 150 run in flight).
+  - The 8332c90 "hand-MSL 1.61×" claim also needs clean re-verification —
+    Stage 2's premise is UNDECIDED until then.
+  - Native-vs-native results (July-Dawn 2.4× regression, delta-prop numbers,
+    eval step counts) are unaffected (native insensitive + step counts
+    deterministic).
+NEW MEASUREMENT RULE: Chrome-side timings are only valid with a clean-state
+pre-flight (swap <1GB, no Jetsam events since boot); log the machine state
+with every measurement.
