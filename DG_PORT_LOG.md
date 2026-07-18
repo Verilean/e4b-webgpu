@@ -1129,3 +1129,29 @@ mul_mat_id 39%/6.0TFLOPs vs 27%/4.25 in earlier benchmarks) — needs porting
 to their interface; (2) the Dawn May→July regression report (after bisect,
 artifacts kept); (3) longer-term: checker-verified kernels as a contribution
 quality bar (bounds-proven, msl-check).
+
+## R64 (2026-07-18): llama.cpp ground truth — ANCHOR CORRECTED; we already lead end-to-end
+
+Per-op instrumentation of llama.cpp itself (refs/ patch, isolated-replay method;
+recipes/DG_LLAMA_SIDE_BY_SIDE.md):
+**ANCHOR CORRECTION: the historical "363ms/64.2 tok/s" does NOT reproduce** —
+today's clean llama.cpp: warm 625-745ms/step, 43-51 tok/s (8 steps).
+⇒ **hesper metal (611ms, 60 tok/s) is equal-or-better than today's llama.cpp
+end-to-end.** All season-long "vs llama.cpp" framing re-anchors here.
+
+THE ASYMMETRY: their GPU forward is ~192-203ms (kernels 2.7× faster than our
+554ms GPU) but they burn ~430-550ms/step OUTSIDE the forward (sampling/CPU/
+sync); we are the mirror (GPU 554 + ~60 runtime). **PRIZE: their kernels + our
+thin runtime + our scheduler = ~260ms/step ≈ 140 canvas tok/s theoretical.**
+
+PORT RANKING (MIT + attribution, msl-check gated):
+ ① monolithic mul_mm_id MoE: 66.5ms vs our 230-280 chain (-165~215ms; the old
+   "our grouped kernels beat mul_mat_id per-kernel" was true per-KERNEL but
+   the whole-chain comparison flips it) — effort HIGH.
+ ② dequant-in-flight mul_mm (dense/qkv/attnO): ~99 vs 165-205 (-70~100) — MED.
+ ③ fused elementwise family (rms_norm_mul_add, bin_fuse): ~16 vs 60-90
+   (-45~75) — LOW-MED; the blueprint for our fusion campaign.
+ANTI-FINDINGS: their orchestration is 3× WORSE than ours (do NOT port); their
+concurrent encoder LOSES to serial (consistent with our Stage 4's -2%).
+Two-way flow: import ①②③; our export = the thin-runtime/scheduler design +
+verified-kernel methodology (+ Dawn report).
