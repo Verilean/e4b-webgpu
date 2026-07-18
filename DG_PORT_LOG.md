@@ -1119,3 +1119,13 @@ rules, but the estimate→measure cycle is burning sessions. The remaining
 ITSELF on this box (refs/ checkout, GGML_METAL profiling / op timing) and put
 its per-op table next to our DG_PROF — a true side-by-side. That is the next
 move before ANY further kernel work.
+
+## R63 (2026-07-18): strategy note — two-way kernel flow with llama.cpp (user directive)
+
+Take their MIT kernels into the verified metal backend (selection by the
+side-by-side table in flight); contribute back upstream when ours win.
+Standing upstream-PR candidates: (1) the grouped-MoE matmul class (beat
+mul_mat_id 39%/6.0TFLOPs vs 27%/4.25 in earlier benchmarks) — needs porting
+to their interface; (2) the Dawn May→July regression report (after bisect,
+artifacts kept); (3) longer-term: checker-verified kernels as a contribution
+quality bar (bounds-proven, msl-check).
