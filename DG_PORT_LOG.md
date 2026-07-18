@@ -1155,3 +1155,26 @@ ANTI-FINDINGS: their orchestration is 3× WORSE than ours (do NOT port); their
 concurrent encoder LOSES to serial (consistent with our Stage 4's -2%).
 Two-way flow: import ①②③; our export = the thin-runtime/scheduler design +
 verified-kernel methodology (+ Dawn report).
+
+## R65 (2026-07-18): ③ fused elementwise = honest negative — and it PROVES the runtime is already thin
+
+Implemented (hesper 9768aa3, opt-in DG_FUSE): rmsNormAddBatchRowsKernel
+(rms_norm_fuse blueprint, MIT-attributed) + gegluMergedQ80B (32-elem quant
+block ↔ 1 simdgroup, geglu in registers → subgroupMax amax → per-lane
+quantize, single pass, no shared mem, eh roundtrip eliminated; CodeGen
+subgroup autodetect extended to subgroupMax). wgsl-check 0 FAIL / 0 WARN.
+France: baseline 601-603 vs fused 599-602ms — **~1-2ms < 15ms threshold →
+stop rule, opt-in banked** (3rd banked asset: directB, DG_FLASH, DG_FUSE).
+Dense geglu+q80 is DEAD code under DENSEF16 defaults (anti-finding).
+
+WHY the fusions don't pay HERE: killing 90 dispatches + 2.2GB/step of traffic
+moves 1-2ms ⇒ our metal backend's per-dispatch overhead is µs-class and the
+traffic theory-value (~1ms @ 400GB/s) matches observation. R64's "elementwise
+60-90ms" was OUR-side over-estimate #4 (inflated PROF/Chrome ratios). The
+llama.cpp fusion win exists in THEIR runtime because their dispatch overhead
+is bigger — not transferable to ours.
+NOTE: steady baseline now 601-603ms (daily variance/tint cache warm).
+REMAINING measured-backed candidates: ① mul_mm_id monolith, ② dequant-in-
+flight mul_mm. GUARD for ①: before the HIGH-effort port, isolate-measure OUR
+MoE chain with the SAME replay-isolation method used on llama.cpp (both sides
+same instrument) — over-estimate #5 must not drive a big port.
