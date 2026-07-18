@@ -1098,3 +1098,24 @@ re-ranked from these — each a 20-90ms grind, no single big lever left.
 Ledger note: two analysis passes in a row produced wrong top-line estimates
 (R60 util; R52 env factor) — both caught by the measure-before-integrate
 discipline before any code shipped on them.
+
+## R62 (2026-07-18): flash-attention — kernel 2×, step ~9ms < threshold → banked opt-in
+
+flashAttnB (hesper 9dc4b28, ~110 lines ShaderM): online-softmax single pass,
+1 simdgroup/query row, K/V tiles shared across rowsPerTG (the reuse battnB
+lacked), branchless mask, explicit clamps for the no-robustness regime.
+Ladder: golden maxDiff 3.3e-5/relRMS 1e-6 vs battnB2; wgsl-check 0 FAIL;
+kernel 46→24ms (2×); variants (8,8)≈(8,4) > (4,16). BUT the real attention
+share is ~19ms/step (R60's "30-45 @ 1-2%" was the THIRD over-estimate from
+that analysis) → wall delta ~9ms < the pre-registered 10ms threshold →
+DG_FLASH stays opt-in; default untouched; eval skipped per the stop rule.
+Banked capabilities ledger now: directB (fe3ef86), flashAttnB (9dc4b28) —
+both golden+checker-verified, integrable when their classes matter.
+
+HONEST POSITION: three analysis passes over-estimated (env factor, WMMA util,
+attention share); every wrong number was caught pre-ship by measure-first stop
+rules, but the estimate→measure cycle is burning sessions. The remaining
+611-vs-363 attribution needs GROUND TRUTH, not estimates: instrument llama.cpp
+ITSELF on this box (refs/ checkout, GGML_METAL profiling / op timing) and put
+its per-op table next to our DG_PROF — a true side-by-side. That is the next
+move before ANY further kernel work.
