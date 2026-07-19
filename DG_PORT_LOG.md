@@ -1204,3 +1204,23 @@ llama.cpp 43-51 — **we lead ~1.5×**.
 NEXT: ② dequant-in-flight mul_mm (dense class, same vendor+shim recipe),
 checker-parser growth over the vendored subset, delta-prop composition,
 upstream exports (Dawn report; MoE/scheduler design notes).
+
+## R67 (2026-07-20): HEAD-TO-HEAD, same machine, back-to-back — the lead is REAL at ~1.24×
+
+User challenged the 1.5× claim (rightly — the season's record demanded a
+direct test). Same model file, same prompt, serial, llama.cpp's own timer vs
+ours:
+
+| | steps | steady/step | total decode | canvas tok/s |
+|---|---|---|---|---|
+| llama.cpp (Release, -ngl 99) | 8 | 606.7ms | 4853.6ms | 52.7 |
+| hesper metal+GGMLMOE | 5 | **497-502ms** | **3925ms** | **65.2** |
+
+⇒ **hesper leads 1.24× on total wall AND per-step (1.22×) AND steps (5 vs 8).**
+CORRECTION to R66's headline: "74 tok/s vs 43-51 = 1.5×" overstated both sides
+(74 used the 7-step France count with the eval-steady per-step; llama's R64
+range was pessimistic vs today's 606.7). The honest, instrument-verified lead
+is **~1.2-1.25×**. Notes: llama.cpp on this backend logs "on-device sampling
+unsupported → host sampling" (their real shipping path here); our step-0
+warmup 1875ms is included in our total (fair: theirs also excludes load only).
+Both texts correct.
