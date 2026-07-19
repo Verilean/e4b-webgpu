@@ -1178,3 +1178,29 @@ REMAINING measured-backed candidates: ① mul_mm_id monolith, ② dequant-in-
 flight mul_mm. GUARD for ①: before the HIGH-effort port, isolate-measure OUR
 MoE chain with the SAME replay-isolation method used on llama.cpp (both sides
 same instrument) — over-estimate #5 must not drive a big port.
+
+## R66 (2026-07-18): ① mul_mm_id port LANDS (hesper fba06db) — 611 → 494ms/step (-19%)
+
+Phase-0 guard (new DG_MOEISO: completion-handler GPU accounting, no wait
+inflation): our MoE chain = 269-271ms/step ≥ the 120ms stop line → port GO
+(R60's 230-280 estimate confirmed this time — the guard works both ways).
+Port: ggml-metal MoE kernels vendored VERBATIM (611KB single-file, MIT +
+provenance, native/ggml_kernels/): mul_mm_id_map0 (replaces our 4-dispatch
+counting sort) + mul_mm_id_{q4_K,q8_0,q5_0}_f32; ~180-line shim (kargs verbatim,
+per-kind row strides, broadcast/per-slot switch); ids layout identical (no
+conversion); new 15-line waccTokMajorB; geglu reused. Chain: ~12-15
+dispatches/layer → 5 (activation gather/scatter + Q8 roundtrip GONE).
+Gates: France "Paris." (5 steps); chain isolated 269→157ms (-42%);
+**step 611→494ms France / 433-445ms eval steady**; eval 8/8 with total
+eff-steps 62 = EXACT baseline; msl_check non-regression.
+
+CAVEATS: (1) vendored kernels OUTSIDE the checker subset (template C++ MSL) —
+"all kernels verified" needs a footnote while DG_GGMLMOE is on; parser growth
+= Stage-3 follow-up. (2) no dedicated per-buffer golden (accepted on
+trajectory family + 8/8 + exact step count). (3) 157 vs llama.cpp's 66.5
+includes tag-scope diffs (ours counts router/geglu/wacc/flushes).
+LADDER: 2700 → 883 → 662 → 611 → **494ms/step**; canvas ≈74 tok/s vs today's
+llama.cpp 43-51 — **we lead ~1.5×**.
+NEXT: ② dequant-in-flight mul_mm (dense class, same vendor+shim recipe),
+checker-parser growth over the vendored subset, delta-prop composition,
+upstream exports (Dawn report; MoE/scheduler design notes).
